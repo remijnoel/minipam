@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68", "wheel", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "minipam"
+dynamic = ["version"]
+description = "A minimalistic IPAM solution"
+authors = [
+  { name = "Remi Noel", email = "remi@rnoel.net" }
+]
+license = "MIT"
+requires-python = ">=3.9"
+dependencies = [
+  "fastapi>=0.100.0",
+  "uvicorn>=0.20.0",
+  "pydantic>=2.0.0",
+  "atomicwrites>=1.4.0",
+  "click>=8.0.0",
+  "httpx>=0.24.0"
+]
+
+[project.optional-dependencies]
+dev = [
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+minipam = "minipam.cli:cli"
+
+[tool.setuptools_scm]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--verbose",
+    "--tb=short",
+    "-ra",
+]
+filterwarnings = [
+    "error",
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
