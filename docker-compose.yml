@@ -1,0 +1,30 @@
+services:
+  minipam:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount data directory for persistent storage
+      - minipam-data:/app/data
+      # Optional: mount custom config file
+      # - ./config.yaml:/app/config.yaml:ro
+    environment:
+      # Override default settings via environment variables
+      - MINIPAM_STORAGE_TYPE=file
+      - MINIPAM_STORAGE_FILE_PATH=/app/data/cidrs.json
+      - MINIPAM_SERVER_HOST=0.0.0.0
+      - MINIPAM_SERVER_PORT=8000
+      - MINIPAM_SERVER_LOG_LEVEL=info
+      # Enable debug mode (uncomment for development)
+      # - MINIPAM_DEBUG=true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  minipam-data:
+    driver: local

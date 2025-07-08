@@ -162,40 +162,21 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         )
 
         if ui_path.exists() and ui_path.is_dir():
-            # Mount static files
+            # Mount static files under /ui
             fastapi_app.mount(
-                "/static", StaticFiles(directory=str(ui_path)), name="static"
+                "/ui", StaticFiles(directory=str(ui_path), html=True), name="ui"
             )
 
             @fastapi_app.get("/")
-            async def serve_ui():
-                """Serve the main UI page"""
-                index_path = ui_path / "index.html"
-                if index_path.exists():
-                    return FileResponse(str(index_path))
-                return {"message": "MiniPAM API", "docs": "/docs"}
-
-            @fastapi_app.get("/{full_path:path}")
-            async def serve_ui_assets(full_path: str):
-                """Serve UI assets and handle client-side routing"""
-                # Don't intercept API routes
-                if full_path.startswith("api/") or full_path.startswith("docs"):
-                    from fastapi import HTTPException
-
-                    raise HTTPException(status_code=404, detail="Not found")
-
-                file_path = ui_path / full_path
-                if file_path.exists() and file_path.is_file():
-                    return FileResponse(str(file_path))
-
-                # For client-side routing, serve index.html
-                index_path = ui_path / "index.html"
-                if index_path.exists():
-                    return FileResponse(str(index_path))
-
-                from fastapi import HTTPException
-
-                raise HTTPException(status_code=404, detail="Not found")
+            async def serve_root():
+                """Serve the API info and redirect to UI"""
+                return {
+                    "message": "MiniPAM CIDR Management API",
+                    "docs": "/docs",
+                    "webui": "/ui",
+                    "api": "/api",
+                    "health": "/health",
+                }
 
         else:
 

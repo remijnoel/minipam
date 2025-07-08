@@ -1,0 +1,86 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+build
+develop-eggs
+dist
+downloads
+eggs
+.eggs
+lib
+lib64
+parts
+sdist
+var
+wheels
+*.egg-info
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env
+venv
+ENV
+env.bak
+venv.bak
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+htmlcov
+.coverage
+.coverage.*
+.cache
+.pytest_cache
+
+# Node.js (will be copied selectively)
+webui/node_modules
+webui/.npm
+webui/dist
+
+# Documentation
+*.md
+!README.md
+
+# Logs
+*.log
+backend.log
+backend_debug.log
+
+# Temporary files
+tmp
+temp
+.tmp
+
+# Build artifacts
+backup
+build-ui.sh
+debug-mode.sh
+dev-server.sh
+check_python_setup.sh
+
+# Test files
+tests
+test_integration_full.py
+
+# Development dependencies
+requirements-dev.txt

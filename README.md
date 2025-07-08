@@ -16,7 +16,31 @@ A FastAPI-based CIDR block management service with pluggable storage backends, m
 
 ## Quick Start
 
-### Installation
+### 🐳 Docker (Recommended)
+
+Get MiniPAM running in seconds with Docker:
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd minipam
+
+# Start with Docker Compose (includes persistent storage)
+docker-compose up -d
+
+# Or run directly with Docker
+docker build -t minipam .
+docker run -p 8000:8000 -v minipam-data:/app/data minipam
+```
+
+**That's it!** MiniPAM is now running at:
+
+- **Web UI**: <http://localhost:8000/ui>
+- **API**: <http://localhost:8000/api>
+- **API Docs**: <http://localhost:8000/docs>
+- **Health Check**: <http://localhost:8000/api/health>
+
+### 🔧 Development Installation
 
 ```bash
 # Clone the repository
@@ -47,7 +71,7 @@ pip install -e .
 uvicorn minipam.main:app --reload
 ```
 
-The API will be available at `http://localhost:8000` with automatic documentation at `http://localhost:8000/docs`.
+The API will be available at `http://localhost:8000/api` with automatic documentation at `http://localhost:8000/docs`.
 The web UI will be available at `http://localhost:3000` in development mode.
 
 ### Using the CLI
@@ -395,3 +419,163 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [Test Summary](TEST_SUMMARY.md)
 - [CLI Documentation](CLI_README.md)
 - [VS Code Testing Guide](VSCODE_TESTING.md)
+
+## 📦 Files Added for Docker Support
+
+The following files have been added to support Docker deployment:
+
+- **`Dockerfile`** - Multi-stage build with Node.js frontend and Python backend
+- **`docker-compose.yml`** - Complete Docker Compose setup with persistent storage
+- **`docker-entrypoint.sh`** - Container startup script with health checks
+- **`config.docker.yaml`** - Docker-optimized configuration
+- **`test-docker.sh`** - Comprehensive Docker setup validation
+- **`.dockerignore`** - Optimized Docker build exclusions
+- **`DOCKER.md`** - Complete Docker deployment guide
+
+## 🎯 Docker Quick Reference
+
+```bash
+# Quick start
+docker-compose up -d
+
+# Build and run manually
+docker build -t minipam .
+docker run -p 8000:8000 -v minipam-data:/app/data minipam
+
+# Test setup
+./test-docker.sh
+
+# Check health
+curl http://localhost:8000/api/health
+
+# Access Web UI
+open http://localhost:8000/ui
+
+# Access API
+curl http://localhost:8000/api/cidrs/
+```
+
+For detailed Docker deployment instructions, see [DOCKER.md](DOCKER.md).
+
+## 🐳 Docker Deployment
+
+### Quick Start with Docker Compose
+
+The easiest way to deploy MiniPAM is using Docker Compose:
+
+```bash
+# Clone and start
+git clone <repository-url>
+cd minipam
+docker-compose up -d
+
+# Check logs
+docker-compose logs -f
+
+# Stop
+docker-compose down
+```
+
+### Manual Docker Build
+
+```bash
+# Build the image
+docker build -t minipam .
+
+# Run with persistent storage
+docker run -d \
+  --name minipam \
+  -p 8000:8000 \
+  -v minipam-data:/app/data \
+  minipam
+
+# Run with custom configuration
+docker run -d \
+  --name minipam \
+  -p 8000:8000 \
+  -v minipam-data:/app/data \
+  -v $(pwd)/config.yaml:/app/config.yaml:ro \
+  minipam
+```
+
+### Docker Environment Variables
+
+Configure MiniPAM using environment variables:
+
+```bash
+docker run -d \
+  --name minipam \
+  -p 8000:8000 \
+  -v minipam-data:/app/data \
+  -e MINIPAM_STORAGE_TYPE=file \
+  -e MINIPAM_STORAGE_FILE_PATH=/app/data/cidrs.json \
+  -e MINIPAM_SERVER_LOG_LEVEL=debug \
+  -e MINIPAM_DEBUG=true \
+  minipam
+```
+
+### Docker Compose with Custom Configuration
+
+Create a custom `docker-compose.override.yml`:
+
+```yaml
+services:
+  minipam:
+    volumes:
+      - ./my-config.yaml:/app/config.yaml:ro
+    environment:
+      - MINIPAM_DEBUG=true
+    ports:
+      - "8080:8000"  # Use different port
+```
+
+Then run:
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d
+```
+
+### Production Deployment
+
+For production, use the provided `config.docker.yaml`:
+
+```bash
+# Copy and customize the Docker config
+cp config.docker.yaml config.prod.yaml
+# Edit config.prod.yaml with your settings
+
+# Deploy
+docker run -d \
+  --name minipam-prod \
+  -p 80:8000 \
+  -v minipam-prod-data:/app/data \
+  -v $(pwd)/config.prod.yaml:/app/config.yaml:ro \
+  --restart unless-stopped \
+  minipam
+```
+
+### Health Checks
+
+The Docker image includes built-in health checks:
+
+```bash
+# Check container health
+docker ps
+docker inspect minipam | grep -A 10 "Health"
+
+# Manual health check
+docker exec minipam python -c "import requests; print(requests.get('http://localhost:8000/api/health').json())"
+```
+
+### Backup and Restore
+
+When using file-based storage:
+
+```bash
+# Backup data
+docker cp minipam:/app/data/cidrs.json backup-$(date +%Y%m%d).json
+
+# Restore data
+docker cp backup-20231201.json minipam:/app/data/cidrs.json
+docker restart minipam
+```
