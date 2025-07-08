@@ -5,6 +5,7 @@
 ### ✅ Moved All Tests to tests/ Directory
 
 **Before:**
+
 - `test_rules.py` (root directory) - standalone test script
 - `test_no_parent_fix.py` (root directory) - specific fix validation
 - `standalone_test_rules.py` (root directory) - standalone validation script
@@ -13,6 +14,7 @@
 - `test-docker.sh` (root directory) - Docker testing script
 
 **After:**
+
 - All test files properly organized in `tests/` directory
 - Legacy standalone scripts moved to `scripts/` directory for utility use
 - All tests converted to use pytest framework
@@ -20,6 +22,7 @@
 ### ✅ Standardized Test Framework
 
 **Converted to pytest:**
+
 - Created comprehensive `tests/test_rules.py` with 12 test cases covering:
   - `NoDuplicateCIDRRule` validation
   - `SmallestParentRule` validation with all edge cases
@@ -30,6 +33,7 @@
   - Rule engine integration
 
 **Maintained existing pytest tests:**
+
 - `test_models.py` - Model validation tests
 - `test_storage.py` - Storage backend tests
 - `test_cli.py` - CLI command tests
@@ -41,6 +45,7 @@
 ### ✅ Enhanced Test Runner
 
 Created `tests/run_tests.py` with features:
+
 - `--core-only` flag for stable tests that don't require running server
 - `--verbose` flag for detailed output
 - `--coverage` flag for coverage reporting
@@ -51,6 +56,7 @@ Created `tests/run_tests.py` with features:
 ### ✅ Updated Documentation
 
 Enhanced `tests/README.md` with:
+
 - Complete test structure overview
 - Multiple ways to run tests
 - Clear examples for different use cases
@@ -89,18 +95,21 @@ tests/test_rules.py::TestRuleEngineIntegration::test_rule_order_independence PAS
 ## Usage Examples
 
 ### Quick Test Run
+
 ```bash
 # Run core tests (recommended for development)
 python tests/run_tests.py --core-only --verbose
 ```
 
 ### Coverage Report
+
 ```bash
 # Generate coverage report
 python tests/run_tests.py --core-only --coverage
 ```
 
 ### Specific Tests
+
 ```bash
 # Test only rules
 python tests/run_tests.py tests/test_rules.py --verbose
@@ -112,6 +121,7 @@ python tests/run_tests.py --pattern "duplicate" --verbose
 ## File Organization
 
 ### New Structure
+
 ```
 tests/
 ├── test_rules.py            # ✅ Comprehensive rule validation tests
@@ -133,6 +143,7 @@ scripts/
 ```
 
 ### Removed Files
+
 - `test_rules.py` (root) - converted to proper pytest format
 - `test_no_parent_fix.py` (root) - functionality covered in new test_rules.py
 - `standalone_test_rules.py` (root) - converted to proper pytest format

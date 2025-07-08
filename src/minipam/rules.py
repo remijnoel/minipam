@@ -127,10 +127,9 @@ class SmallestParentRule(CIDRValidationRule):
 
                 # Check if this existing block contains our CIDR
                 # Only compare networks of the same type (IPv4 vs IPv6)
-                if (
-                    isinstance(cidr_network, type(existing_network)) and
-                    cidr_network.subnet_of(existing_network)
-                ):
+                if isinstance(
+                    cidr_network, type(existing_network)
+                ) and cidr_network.subnet_of(existing_network):
                     potential_parents.append(existing_block.cidr)
             except ValueError:
                 continue  # Skip invalid CIDRs
@@ -163,19 +162,19 @@ class SmallestParentRule(CIDRValidationRule):
         if block.parent is not None:
             try:
                 parent_network = ipaddress.ip_network(block.parent)
-                
+
                 # Check if the CIDR is a subnet of the parent
                 if not isinstance(cidr_network, type(parent_network)):
                     return ValidationResult.failure(
                         f"CIDR {block.cidr} and parent {block.parent} must be the same IP version (IPv4 or IPv6)"
                     )
-                
+
                 # Type checker workaround: cast to Union type
                 if not cidr_network.subnet_of(parent_network):  # type: ignore
                     return ValidationResult.failure(
                         f"CIDR {block.cidr} is not a subnet of parent {block.parent}"
                     )
-                
+
                 # Check if the parent exists
                 parent_exists = any(
                     existing.cidr == block.parent for existing in all_cidrs
@@ -184,7 +183,7 @@ class SmallestParentRule(CIDRValidationRule):
                     return ValidationResult.failure(
                         f"Parent CIDR {block.parent} does not exist"
                     )
-                    
+
             except ValueError as e:
                 return ValidationResult.failure(f"Invalid parent CIDR format: {e}")
 
@@ -239,7 +238,10 @@ class RuleEngine:
 
             if not result:
                 logger.info(
-                    "Rule '%s' failed for CIDR %s: %s", rule_name, block.cidr, result.message
+                    "Rule '%s' failed for CIDR %s: %s",
+                    rule_name,
+                    block.cidr,
+                    result.message,
                 )
                 return False, result.message
 
