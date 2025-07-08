@@ -55,9 +55,15 @@
               </svg>
             </div>
             <div class="ml-3">
-              <h3 class="text-sm font-medium text-red-800">Error</h3>
+              <h3 class="text-sm font-medium text-red-800">
+                <span v-if="error.includes('CIDR block') || error.includes('should be assigned')">Validation Error</span>
+                <span v-else>Error</span>
+              </h3>
               <div class="mt-2 text-sm text-red-700">
-                {{ error }}
+                <p>{{ error }}</p>
+                <p v-if="error.includes('should be assigned')" class="mt-2 italic">
+                  This is due to the "smallest parent" rule: CIDR blocks must be assigned to their most specific parent.
+                </p>
               </div>
             </div>
             <div class="ml-auto pl-3">
@@ -126,6 +132,7 @@
           v-if="showCreateForm || editingCidr"
           :cidr="editingCidr"
           :show="showCreateForm || !!editingCidr"
+          :error="formError"
           @save="handleSave"
           @cancel="handleCancel"
         />
@@ -158,6 +165,7 @@ const debugMode = ref(debugUtils.isDebugMode)
 const cidrs = ref([])
 const isLoading = ref(false)
 const error = ref(null)
+const formError = ref(null)
 const healthStatus = ref('unknown')
 const showCreateForm = ref(false)
 const editingCidr = ref(null)
@@ -209,7 +217,7 @@ async function loadCidrs() {
     cidrs.value = await apiClient.listCidrs()
     debugUtils.logDebug(`Loaded ${cidrs.value.length} CIDR blocks`)
   } catch (err) {
-    error.value = `Failed to load CIDR blocks: ${err.message}`
+    error.value = err.userMessage || `Failed to load CIDR blocks: ${err.message}`
     debugUtils.logDebug('Failed to load CIDR blocks', err)
   } finally {
     isLoading.value = false
@@ -258,13 +266,17 @@ async function handleDelete(cidr) {
     await apiClient.deleteCidr(cidr.cidr)
     await loadCidrs()
   } catch (err) {
-    error.value = `Failed to delete CIDR block: ${err.message}`
+    // Use the enhanced error message from the API client if available
+    error.value = err.userMessage || `Failed to delete CIDR block: ${err.message}`
     debugUtils.logDebug('Delete operation failed', err)
   }
 }
 
 async function handleSave(cidrData) {
   debugUtils.logUIEvent('App', 'save', cidrData)
+  
+  // Clear any previous form errors
+  formError.value = null
   
   try {
     // The key issue: when we're in edit mode with a pre-existing CIDR, update it
@@ -282,7 +294,24 @@ async function handleSave(cidrData) {
     await loadCidrs()
     handleCancel()
   } catch (err) {
-    error.value = `Failed to save CIDR block: ${err.message}`
+    // Use the enhanced error message from the API client if available
+    const errorMessage = err.userMessage || `Failed to save CIDR block: ${err.message}`
+    
+    // If it's a validation error (422), show it in the form
+    if (err.response && err.response.status === 422) {
+      formError.value = errorMessage
+    } else {
+      // For other errors, show in the main error area
+      error.value = errorMessage
+    }
+    
+    // In debug mode, show more detailed error information
+    if (debugMode.value) {
+      if (err.response?.data?.detail) {
+        console.log('Detailed error info:', err.response.data.detail)
+      }
+    }
+    
     debugUtils.logDebug('Save operation failed', err)
   }
 }
@@ -291,6 +320,7 @@ function handleCancel() {
   debugUtils.logUIEvent('App', 'cancel')
   showCreateForm.value = false
   editingCidr.value = null
+  formError.value = null
 }
 
 function showDebugInfo() {

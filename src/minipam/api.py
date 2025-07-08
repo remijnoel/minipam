@@ -11,6 +11,7 @@ from fastapi.responses import RedirectResponse
 
 from .debug import DEBUG_MODE, log_api_call, log_request_details
 from .models import CIDRBlock
+from .rules import ValidationError, validate_cidr
 from .storage import CIDRStorage, get_cidr_storage
 
 # Setup logger for this module
@@ -68,29 +69,33 @@ async def create_cidr(block: CIDRBlock, storage: CIDRStorage = Depends(get_stora
     from .debug import log_cidr_relationship
 
     block = _sanitize_block(block)
-    # Check if it already exists
-    existing = await storage.get(block.cidr)
-    if existing is not None:
+
+    try:
+        # Validate the CIDR block against all rules
+        await validate_cidr(block, storage)
+
+        # Log parent-child relationship if parent is specified
+        if block.parent:
+            parent_block = await storage.get(block.parent)
+            if parent_block:
+                log_cidr_relationship(block.parent, block.cidr, "create", success=True)
+            else:
+                log_cidr_relationship(block.parent, block.cidr, "create", success=False)
+                logger.warning(
+                    "Parent CIDR %s specified for %s doesn't exist",
+                    block.parent,
+                    block.cidr,
+                )
+
+        await storage.put(block)
+        return block
+
+    except ValidationError as e:
+        # Return a clear error message for the UI/CLI
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"CIDR block '{block.cidr}' already exists",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
         )
-
-    # Log parent-child relationship if parent is specified
-    if block.parent:
-        parent_block = await storage.get(block.parent)
-        if parent_block:
-            log_cidr_relationship(block.parent, block.cidr, "create", success=True)
-        else:
-            log_cidr_relationship(block.parent, block.cidr, "create", success=False)
-            logger.warning(
-                "Parent CIDR %s specified for %s doesn't exist",
-                block.parent,
-                block.cidr,
-            )
-
-    await storage.put(block)
-    return block
 
 
 @router.post("/cidrs", response_model=CIDRBlock, status_code=status.HTTP_201_CREATED)
@@ -101,29 +106,33 @@ async def create_cidr_no_slash(
     from .debug import log_cidr_relationship
 
     block = _sanitize_block(block)
-    # Check if it already exists
-    existing = await storage.get(block.cidr)
-    if existing is not None:
+
+    try:
+        # Validate the CIDR block against all rules
+        await validate_cidr(block, storage)
+
+        # Log parent-child relationship if parent is specified
+        if block.parent:
+            parent_block = await storage.get(block.parent)
+            if parent_block:
+                log_cidr_relationship(block.parent, block.cidr, "create", success=True)
+            else:
+                log_cidr_relationship(block.parent, block.cidr, "create", success=False)
+                logger.warning(
+                    "Parent CIDR %s specified for %s doesn't exist",
+                    block.parent,
+                    block.cidr,
+                )
+
+        await storage.put(block)
+        return block
+
+    except ValidationError as e:
+        # Return a clear error message for the UI/CLI
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"CIDR block '{block.cidr}' already exists",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
         )
-
-    # Log parent-child relationship if parent is specified
-    if block.parent:
-        parent_block = await storage.get(block.parent)
-        if parent_block:
-            log_cidr_relationship(block.parent, block.cidr, "create", success=True)
-        else:
-            log_cidr_relationship(block.parent, block.cidr, "create", success=False)
-            logger.warning(
-                "Parent CIDR %s specified for %s doesn't exist",
-                block.parent,
-                block.cidr,
-            )
-
-    await storage.put(block)
-    return block
 
 
 @router.put("/cidrs", status_code=status.HTTP_400_BAD_REQUEST)
@@ -191,10 +200,38 @@ async def update_cidr(
 
     # Update the block (CIDR should match the path parameter)
     block.cidr = cidr
-    await storage.put(block)
-    if DEBUG_MODE:
-        logger.debug("CIDR updated successfully: %s", cidr)
-    return block
+
+    # For updates, we need to temporarily remove the existing entry
+    # so the duplicate check doesn't trigger on the item being updated
+    # First, keep a copy of the existing entry
+    old_block = existing
+
+    try:
+        # We need to delete the existing entry before validation to avoid
+        # the duplicate check failing on the same CIDR
+        await storage.delete(cidr)
+
+        # Validate the CIDR block against all rules
+        await validate_cidr(block, storage)
+
+        # If validation passes, put the updated block
+        await storage.put(block)
+        if DEBUG_MODE:
+            logger.debug("CIDR updated successfully: %s", cidr)
+        return block
+
+    except ValidationError as e:
+        # If validation fails, restore the old block
+        await storage.put(old_block)
+        # Return a clear error message for the UI/CLI
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
+    except Exception:
+        # Ensure the old block is restored on any other error
+        await storage.put(old_block)
+        raise
 
 
 @router.get("/cidrs/{cidr:path}", response_model=CIDRBlock)
