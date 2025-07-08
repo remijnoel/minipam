@@ -21,8 +21,33 @@
           </div>
         </div>
         
+        <!-- Expand/Collapse Controls -->
+        <div class="ml-4 flex items-center space-x-2">
+          <button
+            @click="expandAll"
+            class="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            title="Expand all rows"
+          >
+            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+            </svg>
+            Expand All
+          </button>
+          
+          <button
+            @click="collapseAll"
+            class="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            title="Collapse all rows"
+          >
+            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 11l3-3m0 0l3 3m-3-3v8m0-13a9 9 0 110 18 9 9 0 010-18z" />
+            </svg>
+            Collapse All
+          </button>
+        </div>
+        
         <div class="ml-4 text-sm text-gray-500">
-          {{ filteredCidrs.length }} of {{ cidrs.length }} blocks
+          {{ visibleCidrs.length }} visible of {{ filteredCidrs.length }} filtered ({{ cidrs.length }} total)
         </div>
       </div>
     </div>
@@ -38,13 +63,13 @@
     </div>
 
     <!-- Empty State -->
-    <div v-else-if="filteredCidrs.length === 0" class="px-4 py-8 text-center">
+    <div v-else-if="visibleCidrs.length === 0" class="px-4 py-8 text-center">
       <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
       </svg>
-      <h3 class="mt-2 text-sm font-medium text-gray-900">No CIDR blocks found</h3>
+      <h3 class="mt-2 text-sm font-medium text-gray-900">No CIDR blocks visible</h3>
       <p class="mt-1 text-sm text-gray-500">
-        {{ searchQuery ? 'Try adjusting your search criteria.' : 'Get started by creating a new CIDR block.' }}
+        {{ searchQuery ? 'Try adjusting your search criteria or expanding parent rows.' : 'Get started by creating a new CIDR block.' }}
       </p>
     </div>
 
@@ -77,7 +102,7 @@
           </tr>
         </thead>
         <tbody class="bg-white divide-y divide-gray-200">
-          <tr v-for="cidr in filteredCidrs" :key="cidr.cidr" class="hover:bg-gray-50">
+          <tr v-for="cidr in visibleCidrs" :key="cidr.cidr" class="hover:bg-gray-50">
             <td class="px-6 py-4 whitespace-nowrap">
               <div class="flex items-center">
                 <!-- Indentation based on hierarchy level -->
@@ -88,6 +113,28 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7l3-3 3 3m0 6l-3 3-3-3" />
                   </svg>
                 </div>
+                
+                <!-- Expand/Collapse button for parents -->
+                <button
+                  v-if="cidr.hasChildren"
+                  @click="toggleExpanded(cidr.cidr)"
+                  class="flex items-center mr-2 p-1 rounded hover:bg-gray-200 transition-colors"
+                  :title="expandedRows.has(cidr.cidr) ? 'Collapse' : 'Expand'"
+                >
+                  <svg 
+                    class="w-4 h-4 text-gray-600 transition-transform"
+                    :class="{ 'rotate-90': expandedRows.has(cidr.cidr) }"
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+                
+                <!-- Spacer for non-parent rows to maintain alignment -->
+                <div v-else class="w-6 mr-2"></div>
+                
                 <div class="text-sm font-medium text-gray-900">{{ cidr.cidr }}</div>
               </div>
             </td>
@@ -206,6 +253,48 @@ defineEmits(['view', 'edit', 'delete', 'createChild'])
 
 // Reactive state
 const searchQuery = ref('')
+const expandedRows = ref(new Set())
+
+// Helper function to get all children of a CIDR
+function getChildren(parentCidr, cidrs) {
+  return cidrs.filter(cidr => cidr.parent === parentCidr)
+}
+
+// Helper function to get all descendants of a CIDR (children, grandchildren, etc.)
+function getAllDescendants(parentCidr, cidrs) {
+  const descendants = []
+  const children = getChildren(parentCidr, cidrs)
+  
+  for (const child of children) {
+    descendants.push(child)
+    descendants.push(...getAllDescendants(child.cidr, cidrs))
+  }
+  
+  return descendants
+}
+
+// Toggle expand/collapse state
+function toggleExpanded(cidrId) {
+  if (expandedRows.value.has(cidrId)) {
+    expandedRows.value.delete(cidrId)
+  } else {
+    expandedRows.value.add(cidrId)
+  }
+}
+
+// Expand all CIDRs that have children
+function expandAll() {
+  const parentsWithChildren = filteredCidrs.value
+    .filter(cidr => cidr.hasChildren)
+    .map(cidr => cidr.cidr)
+  
+  expandedRows.value = new Set(parentsWithChildren)
+}
+
+// Collapse all CIDRs
+function collapseAll() {
+  expandedRows.value.clear()
+}
 
 // Helper function to compare IP addresses for sorting
 function compareIpAddresses(cidr1, cidr2) {
@@ -241,10 +330,13 @@ function buildCidrHierarchy(cidrs) {
   
   // Initialize each CIDR's level (indentation level)
   sortedCidrs.forEach(cidr => {
+    const children = getChildren(cidr.cidr, sortedCidrs)
     cidrMap.set(cidr.cidr, { 
       ...cidr, 
       level: 0, // Default level
-      isChild: !!cidr.parent // Is this a child?
+      isChild: !!cidr.parent, // Is this a child?
+      hasChildren: children.length > 0, // Does this have children?
+      children: children
     })
   })
   
@@ -281,6 +373,40 @@ const filteredCidrs = computed(() => {
   
   // Then build hierarchical structure
   return buildCidrHierarchy(filtered)
+})
+
+const visibleCidrs = computed(() => {
+  const result = []
+  
+  for (const cidr of filteredCidrs.value) {
+    // Always show root level CIDRs (no parent)
+    if (!cidr.parent) {
+      result.push(cidr)
+      continue
+    }
+    
+    // For child CIDRs, check if all ancestors are expanded
+    let shouldShow = true
+    let currentParent = cidr.parent
+    
+    while (currentParent && shouldShow) {
+      // If this parent is not expanded, don't show this child
+      if (!expandedRows.value.has(currentParent)) {
+        shouldShow = false
+        break
+      }
+      
+      // Find the parent's parent
+      const parentCidr = filteredCidrs.value.find(c => c.cidr === currentParent)
+      currentParent = parentCidr?.parent
+    }
+    
+    if (shouldShow) {
+      result.push(cidr)
+    }
+  }
+  
+  return result
 })
 
 // Methods

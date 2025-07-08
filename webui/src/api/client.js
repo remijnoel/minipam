@@ -69,7 +69,7 @@ api.interceptors.response.use(
         } else {
             console.error('API Error:', error.response?.data || error.message)
         }
-        
+
         // Extract user-friendly error message from the response
         if (error.response) {
             // For validation errors (422) or conflict errors (409), use the detail message
@@ -78,7 +78,7 @@ api.interceptors.response.use(
                     error.userMessage = error.response.data.detail;
                 }
             }
-            
+
             // For other errors, provide a generic message with status code
             if (!error.userMessage) {
                 error.userMessage = `API Error (${error.response.status}): ${error.response.statusText}`;
@@ -90,7 +90,7 @@ api.interceptors.response.use(
             // Other errors
             error.userMessage = error.message || "An unexpected error occurred";
         }
-        
+
         return Promise.reject(error)
     }
 )
