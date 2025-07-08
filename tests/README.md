@@ -8,13 +8,49 @@ This directory contains all tests for the minipam project, organized according t
 tests/
 ├── __init__.py              # Test package initialization
 ├── conftest.py              # Pytest configuration and shared fixtures
+├── test_rules.py            # Unit tests for CIDR validation rules
 ├── test_models.py           # Unit tests for data models
 ├── test_storage.py          # Unit tests for storage backends
 ├── test_api.py              # Integration tests for API endpoints
 ├── test_config.py           # Unit tests for configuration
+├── test_cli.py              # Unit tests for CLI commands
+├── test_file_storage_edge_cases.py  # Edge case tests for file storage
+├── test_ui_api_integration.py       # UI/API integration tests
 ├── test_integration.py      # Full integration tests
-├── run_tests.py             # Simple test runner (when pytest not available)
+├── run_tests.py             # Enhanced test runner with multiple options
 └── README.md               # This file
+```
+
+## Running Tests
+
+### Quick Start
+
+```bash
+# Run all core tests (recommended for development)
+python tests/run_tests.py --core-only --verbose
+
+# Run specific test files
+python tests/run_tests.py tests/test_rules.py tests/test_models.py
+
+# Run tests with coverage
+python tests/run_tests.py --core-only --coverage
+
+# Run tests matching a pattern
+python tests/run_tests.py --pattern "test_rules"
+```
+
+### Using pytest directly
+
+```bash
+# From project root with virtual environment activated
+.venv/bin/python -m pytest tests/ -v
+
+# Run specific test categories
+.venv/bin/python -m pytest tests/test_rules.py -v
+.venv/bin/python -m pytest tests/test_models.py tests/test_storage.py -v
+
+# Run with coverage
+.venv/bin/python -m pytest tests/ --cov=src/minipam --cov-report=html
 ```
 
 ## Test Categories
@@ -30,11 +66,11 @@ tests/
 - **test_api.py**: Tests for FastAPI endpoints and HTTP API
 - **test_integration.py**: End-to-end tests verifying all components work together
 
-## Running Tests
+## Legacy Test Runner
 
-### Using pytest (Recommended)
+### Using pytest (Alternative Method)
 
-First, install development dependencies:
+If you prefer to use pytest directly, first install development dependencies:
 
 ```bash
 pip install -r requirements-dev.txt
