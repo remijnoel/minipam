@@ -106,10 +106,6 @@ class SmallestParentRule(CIDRValidationRule):
     async def validate(
         self, block: CIDRBlock, storage: CIDRStorage
     ) -> ValidationResult:
-        # Skip validation if no parent is specified
-        if block.parent is None:
-            return ValidationResult.success()
-
         # Parse the CIDR block
         try:
             cidr_network = ipaddress.ip_network(block.cidr)
@@ -118,40 +114,28 @@ class SmallestParentRule(CIDRValidationRule):
             # but we'll check again to be safe
             return ValidationResult.failure(f"Invalid CIDR format: {e}")
 
-        # Parse the parent CIDR
-        try:
-            parent_network = ipaddress.ip_network(block.parent)
-        except ValueError as e:
-            return ValidationResult.failure(f"Invalid parent CIDR format: {e}")
-
-        # Check if the CIDR is a subnet of the parent
-        if not cidr_network.subnet_of(parent_network):
-            return ValidationResult.failure(
-                f"CIDR {block.cidr} is not a subnet of parent {block.parent}"
-            )
-
-        # Find all possible parent CIDRs that contain this CIDR
+        # Find all existing CIDRs that could contain this CIDR
         all_cidrs = await storage.list()
         potential_parents = []
 
         for existing_block in all_cidrs:
-            if existing_block.cidr == block.cidr or existing_block.cidr == block.parent:
-                continue  # Skip self and specified parent
+            if existing_block.cidr == block.cidr:
+                continue  # Skip self
 
             try:
                 existing_network = ipaddress.ip_network(existing_block.cidr)
 
                 # Check if this existing block contains our CIDR
+                # Only compare networks of the same type (IPv4 vs IPv6)
                 if (
+                    isinstance(cidr_network, type(existing_network)) and
                     cidr_network.subnet_of(existing_network)
-                    and existing_network.subnet_of(parent_network)
-                    and existing_network != parent_network
                 ):
-                    # This is a more specific parent than the one specified
                     potential_parents.append(existing_block.cidr)
             except ValueError:
                 continue  # Skip invalid CIDRs
 
+        # If there are potential parents, find the most specific one
         if potential_parents:
             # Find the smallest (most specific) potential parent
             smallest_parent = None
@@ -164,10 +148,45 @@ class SmallestParentRule(CIDRValidationRule):
                     smallest_parent = parent_cidr
 
             if smallest_parent:
-                return ValidationResult.failure(
-                    f"CIDR {block.cidr} should be assigned to the more specific parent {smallest_parent} "
-                    f"instead of {block.parent}"
+                # Check if the specified parent matches the required parent
+                if block.parent is None:
+                    return ValidationResult.failure(
+                        f"CIDR {block.cidr} must be assigned to parent {smallest_parent}, not as a root-level CIDR"
+                    )
+                elif block.parent != smallest_parent:
+                    return ValidationResult.failure(
+                        f"CIDR {block.cidr} should be assigned to the more specific parent {smallest_parent} "
+                        f"instead of {block.parent}"
+                    )
+
+        # If a parent is specified, validate it exists and the CIDR is actually a subnet
+        if block.parent is not None:
+            try:
+                parent_network = ipaddress.ip_network(block.parent)
+                
+                # Check if the CIDR is a subnet of the parent
+                if not isinstance(cidr_network, type(parent_network)):
+                    return ValidationResult.failure(
+                        f"CIDR {block.cidr} and parent {block.parent} must be the same IP version (IPv4 or IPv6)"
+                    )
+                
+                # Type checker workaround: cast to Union type
+                if not cidr_network.subnet_of(parent_network):  # type: ignore
+                    return ValidationResult.failure(
+                        f"CIDR {block.cidr} is not a subnet of parent {block.parent}"
+                    )
+                
+                # Check if the parent exists
+                parent_exists = any(
+                    existing.cidr == block.parent for existing in all_cidrs
                 )
+                if not parent_exists:
+                    return ValidationResult.failure(
+                        f"Parent CIDR {block.parent} does not exist"
+                    )
+                    
+            except ValueError as e:
+                return ValidationResult.failure(f"Invalid parent CIDR format: {e}")
 
         return ValidationResult.success()
 
@@ -186,7 +205,7 @@ class RuleEngine:
     def register_rule(self, rule: CIDRValidationRule) -> None:
         """Register a new validation rule"""
         self._rules[rule.name] = rule
-        logger.debug(f"Registered validation rule: {rule.name}")
+        logger.debug("Registered validation rule: %s", rule.name)
 
     def register_rules(self, rules: List[CIDRValidationRule]) -> None:
         """Register multiple validation rules at once"""
@@ -215,16 +234,16 @@ class RuleEngine:
             Tuple[bool, Optional[str]]: (is_valid, error_message)
         """
         for rule_name, rule in self._rules.items():
-            logger.debug(f"Applying rule '{rule_name}' to CIDR {block.cidr}")
+            logger.debug("Applying rule '%s' to CIDR %s", rule_name, block.cidr)
             result = await rule.validate(block, storage)
 
             if not result:
                 logger.info(
-                    f"Rule '{rule_name}' failed for CIDR {block.cidr}: {result.message}"
+                    "Rule '%s' failed for CIDR %s: %s", rule_name, block.cidr, result.message
                 )
                 return False, result.message
 
-        logger.debug(f"All rules passed for CIDR {block.cidr}")
+        logger.debug("All rules passed for CIDR %s", block.cidr)
         return True, None
 
 
