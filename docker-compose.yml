@@ -30,6 +30,7 @@ services:
       # Mount config files
       - ./config.apikey.yaml:/app/config.apikey.yaml:ro
       - ./config.azure.yaml:/app/config.azure.yaml:ro
+
     environment:
       # Core application settings
       - MINIPAM_STORAGE_TYPE=file
@@ -54,10 +55,10 @@ services:
       # - MINIPAM_API_KEY_SERVICE=sk-minipam-service-production-key:readwrite
       # 
       # For Azure authentication, set Azure credentials:
-      # - MINIPAM_OIDC_CLIENT_ID=your-azure-app-client-id
-      # - MINIPAM_OIDC_CLIENT_SECRET=your-azure-app-client-secret
-      # - MINIPAM_OIDC_ISSUER_URL=https://login.microsoftonline.com/your-tenant-id/v2.0
-      
+      - MINIPAM_OIDC_CLIENT_ID=${MINIPAM_OIDC_CLIENT_ID:-your-azure-app-client-id}
+      - MINIPAM_OIDC_CLIENT_SECRET=${MINIPAM_OIDC_CLIENT_SECRET:-your-azure-app-client-secret}
+      - MINIPAM_OIDC_ISSUER_URL=${MINIPAM_OIDC_ISSUER_URL:-https://login.microsoftonline.com/your-tenant-id/v2.0}
+
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s
