@@ -27,6 +27,49 @@ def event_loop():
     loop.close()
 
 
+# Authentication fixtures
+@pytest.fixture(autouse=True)
+def setup_auth_env():
+    """Set up authentication environment for tests"""
+    # Set environment variables for consistent auth testing
+    os.environ["MINIPAM_AUTH_BACKEND"] = "none"
+    os.environ["MINIPAM_STORAGE_TYPE"] = "memory" 
+    os.environ["MINIPAM_JWT_SECRET"] = "test-secret-for-testing"
+    os.environ["MINIPAM_DEFAULT_USERNAME"] = "testuser"
+    os.environ["MINIPAM_DEFAULT_ROLE"] = "readwrite"
+    
+    yield
+    
+    # Clean up auth env vars
+    for key in ["MINIPAM_AUTH_BACKEND", "MINIPAM_STORAGE_TYPE", "MINIPAM_JWT_SECRET", 
+                "MINIPAM_DEFAULT_USERNAME", "MINIPAM_DEFAULT_ROLE"]:
+        os.environ.pop(key, None)
+
+
+@pytest.fixture
+def auth_user():
+    """Create a test user for authentication testing"""
+    from minipam.auth.models import UserInfo
+    return UserInfo(
+        username="testuser",
+        email="test@example.com", 
+        roles=["readwrite"],
+        is_authenticated=True
+    )
+
+
+@pytest.fixture  
+def auth_readonly_user():
+    """Create a readonly test user for authentication testing"""
+    from minipam.auth.models import UserInfo
+    return UserInfo(
+        username="readonly",
+        email="readonly@example.com",
+        roles=["readonly"], 
+        is_authenticated=True
+    )
+
+
 @pytest.fixture
 def sample_cidr_block() -> CIDRBlock:
     """Create a sample CIDR block for testing."""
@@ -35,6 +78,7 @@ def sample_cidr_block() -> CIDRBlock:
         name="Test Network",
         description="Test network for unit testing",
         tags={"environment": "test", "priority": "high"},
+        parent=None,
     )
 
 
@@ -46,7 +90,7 @@ def another_cidr_block() -> CIDRBlock:
         name="Corporate Network",
         description="Enterprise network range",
         tags={"environment": "corporate", "priority": "medium"},
-        children=["10.1.0.0/16", "10.2.0.0/16"],
+        parent=None,
     )
 
 

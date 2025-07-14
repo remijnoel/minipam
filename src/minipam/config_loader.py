@@ -94,6 +94,20 @@ class ConfigLoader:
             "MINIPAM_SERVER_PORT": ["server", "port"],
             "MINIPAM_SERVER_LOG_LEVEL": ["server", "log_level"],
             "MINIPAM_DEBUG": ["debug"],
+            # Authentication configuration
+            "MINIPAM_AUTH_BACKEND": ["auth", "backend"],
+            "MINIPAM_JWT_SECRET": ["auth", "jwt", "secret"],
+            "MINIPAM_JWT_ALGORITHM": ["auth", "jwt", "algorithm"],
+            "MINIPAM_JWT_EXPIRY_HOURS": ["auth", "jwt", "expiry_hours"],
+            # OIDC configuration
+            "MINIPAM_OIDC_CLIENT_ID": ["auth", "oidc", "client_id"],
+            "MINIPAM_OIDC_CLIENT_SECRET": ["auth", "oidc", "client_secret"],
+            "MINIPAM_OIDC_ISSUER_URL": ["auth", "oidc", "issuer_url"],
+            "MINIPAM_OIDC_REDIRECT_URI": ["auth", "oidc", "redirect_uri"],
+            "MINIPAM_OIDC_SCOPE": ["auth", "oidc", "scope"],
+            "MINIPAM_OIDC_ROLE_CLAIM": ["auth", "oidc", "role_claim"],
+            "MINIPAM_OIDC_ROLE_MAPPING": ["auth", "oidc", "role_mapping"],
+            "MINIPAM_OIDC_DEFAULT_ROLE": ["auth", "oidc", "default_role"],
             # Legacy environment variables for backward compatibility
             "USE_FILE_BACKEND": ["storage", "type"],  # Maps to 'file' if 'true'
             "CIDR_FILE_PATH": ["storage", "file", "path"],
@@ -117,18 +131,40 @@ class ConfigLoader:
                     try:
                         value = int(value)
                     except ValueError:
-                        logger.warning(f"Invalid port value in {env_var}: {value}")
+                        logger.warning("Invalid port value in %s: %s", env_var, value)
+                        continue
+
+                # Special handling for expiry_hours (convert to int)
+                if config_path[-1] == "expiry_hours":
+                    try:
+                        value = int(value)
+                    except ValueError:
+                        logger.warning("Invalid expiry_hours value in %s: %s", env_var, value)
                         continue
 
                 # Special handling for debug (convert to bool)
                 if config_path[-1] == "debug":
-                    value = value.lower() in ("true", "1", "yes", "on")
+                    value = str(value).lower() in ("true", "1", "yes", "on")
 
                 # Set the value in config
                 self._set_nested_value(self.config, config_path, value)
                 logger.debug(
-                    f"Applied environment override: {env_var} -> {'.'.join(config_path)} = {value}"
+                    "Applied environment override: %s -> %s = %s", env_var, '.'.join(config_path), value
                 )
+
+        # Handle API key environment variables (MINIPAM_API_KEY_<USERNAME>=<key>:<role>)
+        for env_var, env_value in os.environ.items():
+            if env_var.startswith("MINIPAM_API_KEY_"):
+                username = env_var[len("MINIPAM_API_KEY_"):].lower()
+                if ":" in env_value:
+                    # Ensure auth.api_keys section exists
+                    if "auth" not in self.config:
+                        self.config["auth"] = {}
+                    if "api_keys" not in self.config["auth"]:
+                        self.config["auth"]["api_keys"] = {}
+                    
+                    self.config["auth"]["api_keys"][username] = env_value
+                    logger.debug("Applied API key for user: %s", username)
 
     def _set_nested_value(self, config: Dict[str, Any], path: list, value: Any):
         """Set a nested value in the configuration dictionary"""
@@ -149,6 +185,25 @@ class ConfigLoader:
             "debug": False,
             "cors": {"enabled": True, "origins": ["*"]},
             "ui": {"enabled": True, "path": "webui/dist"},
+            "auth": {
+                "backend": "none",
+                "jwt": {
+                    "secret": "default-secret-change-in-production",
+                    "algorithm": "HS256",
+                    "expiry_hours": 8,
+                },
+                "api_keys": {},
+                "oidc": {
+                    "client_id": "",
+                    "client_secret": "",
+                    "issuer_url": "",
+                    "redirect_uri": "http://localhost:8000/auth/callback/oidc",
+                    "scope": "openid profile email",
+                    "role_claim": "groups",
+                    "role_mapping": "",
+                    "default_role": "readonly",
+                },
+            },
         }
 
     def get_config(self) -> Dict[str, Any]:
@@ -213,12 +268,12 @@ class ConfigLoader:
 
         return True
 
-    def save_example_config(self, path: Union[str, Path], format: str = "yaml"):
+    def save_example_config(self, path: Union[str, Path], config_format: str = "yaml"):
         """Save an example configuration file"""
         config = self.get_default_config()
         path = Path(path)
 
-        if format.lower() == "yaml":
+        if config_format.lower() == "yaml":
             if not HAS_YAML:
                 raise ConfigurationError(
                     "YAML support not available. Install PyYAML: pip install PyYAML"
@@ -230,7 +285,7 @@ class ConfigLoader:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2)
 
-        logger.info(f"Example configuration saved to {path}")
+        logger.info("Example configuration saved to %s", path)
 
 
 # Global config loader instance

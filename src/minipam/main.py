@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import router
+from .auth import AuthMiddleware, auth_router
 from .config import (
     get_config,
     get_cors_config,
@@ -138,6 +139,9 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
                 },
             )
 
+    # Add authentication middleware
+    fastapi_app.add_middleware(AuthMiddleware)
+
     # Add CORS middleware
     if cors_config.get("enabled", True):
         fastapi_app.add_middleware(
@@ -154,6 +158,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
 
     # Add API routes
     fastapi_app.include_router(router, prefix="/api")
+    fastapi_app.include_router(auth_router)
 
     # Serve static files for the UI if enabled
     if ui_config.get("enabled", True):
@@ -233,8 +238,11 @@ def main():
 
     # Load configuration
     try:
-        if args.config:
-            load_configuration(args.config)
+        # Check for config file in environment variable first
+        config_file_path = args.config or os.getenv('MINIPAM_CONFIG_FILE')
+        
+        if config_file_path:
+            load_configuration(config_file_path)
         else:
             # Load default configuration
             load_configuration()

@@ -25,7 +25,7 @@ if [ ! -w "/app/data" ]; then
 fi
 
 # Check if config file exists
-CONFIG_FILE="/app/config.yaml"
+CONFIG_FILE="${MINIPAM_CONFIG_FILE:-/app/config.yaml}"
 if [ ! -f "$CONFIG_FILE" ]; then
     echo -e "${YELLOW}📝 Generating default configuration...${NC}"
     python -m minipam.main --generate-config "$CONFIG_FILE"

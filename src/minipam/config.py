@@ -81,3 +81,65 @@ def get_cors_config() -> Dict[str, Any]:
 def get_ui_config() -> Dict[str, Any]:
     """Get UI configuration"""
     return _get_config_value(["ui"], {"enabled": True, "path": "webui/dist"})
+
+
+def get_auth_config() -> Dict[str, Any]:
+    """Get authentication configuration"""
+    return _get_config_value(
+        ["auth"], {
+            "backend": "none",
+            "jwt": {
+                "secret": "default-secret-change-in-production",
+                "algorithm": "HS256",
+                "expiry_hours": 8,
+            },
+            "api_keys": {},
+            "oidc": {
+                "client_id": "",
+                "client_secret": "",
+                "issuer_url": "",
+                "redirect_uri": "http://localhost:8000/auth/callback/oidc",
+                "scope": "openid profile email",
+                "role_claim": "groups",
+                "role_mapping": "",
+                "default_role": "readonly",
+            },
+        }
+    )
+
+
+def get_auth_backend() -> str:
+    """Get the authentication backend name"""
+    return _get_config_value(["auth", "backend"], "none")
+
+
+def get_jwt_config() -> Dict[str, Any]:
+    """Get JWT configuration"""
+    return _get_config_value(
+        ["auth", "jwt"], {
+            "secret": "default-secret-change-in-production",
+            "algorithm": "HS256",
+            "expiry_hours": 8,
+        }
+    )
+
+
+def get_api_keys_config() -> Dict[str, str]:
+    """Get API keys configuration"""
+    return _get_config_value(["auth", "api_keys"], {})
+
+
+def get_oidc_config() -> Dict[str, Any]:
+    """Get OIDC configuration"""
+    return _get_config_value(
+        ["auth", "oidc"], {
+            "client_id": "",
+            "client_secret": "",
+            "issuer_url": "",
+            "redirect_uri": "http://localhost:8000/auth/callback/oidc",
+            "scope": "openid profile email",
+            "role_claim": "groups",
+            "role_mapping": "",
+            "default_role": "readonly",
+        }
+    )

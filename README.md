@@ -7,7 +7,7 @@ A FastAPI-based CIDR block management service with pluggable storage backends, m
 - 🚀 **FastAPI-based REST API** - High-performance web API with automatic OpenAPI documentation
 - 🌐 **Modern Vue.js UI** - Clean, responsive UI built with Vue 3 and Tailwind CSS
 - 💾 **Pluggable Storage Backends** - Support for both in-memory and file-based storage
-- 🛠️ **Validation Rules Engine** - Enforce CIDR hierarchy and prevent data inconsistency
+A- 🛠️ **Validation Rules Engine** - Enforce CIDR hierarchy and prevent data inconsistency
 - 🔒 **Thread-safe Operations** - Concurrent access protection with file locking
 - 🛠️ **Comprehensive CLI** - Full command-line interface for all operations
 - 🐞 **Advanced Debugging** - Detailed request/response logging and storage operation tracking

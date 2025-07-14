@@ -13,10 +13,8 @@ from minipam.models import CIDRBlock
 
 @pytest.fixture
 def client():
-    """Create a test client for the FastAPI app with file storage enabled"""
-    # Set environment variable to use file storage
-    os.environ["USE_FILE_BACKEND"] = "true"
-    os.environ["CIDR_FILE_PATH"] = "test_cidrs.json"
+    """Create a test client for the FastAPI app with memory storage"""
+    # Use memory storage for tests (set by auto fixture in conftest.py)
     app = create_app()
     return TestClient(app)
 
@@ -87,7 +85,7 @@ class TestCIDRAPI:
 
     def test_health_check(self, client):
         """Test health check endpoint"""
-        response = client.get("/health")
+        response = client.get("/api/health")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "healthy"
@@ -95,14 +93,14 @@ class TestCIDRAPI:
 
     def test_list_empty_cidrs(self, client, clean_storage):
         """Test listing CIDRs when storage is empty"""
-        response = client.get("/cidrs/")
+        response = client.get("/api/cidrs/")
         assert response.status_code == 200
         data = response.json()
         assert data == []
 
     def test_create_cidr(self, client, clean_storage, sample_cidr_data):
         """Test creating a new CIDR block"""
-        response = client.post("/cidrs/", json=sample_cidr_data)
+        response = client.post("/api/cidrs/", json=sample_cidr_data)
         assert response.status_code == 201
         data = response.json()
         assert data["cidr"] == sample_cidr_data["cidr"]
@@ -112,12 +110,12 @@ class TestCIDRAPI:
     def test_get_cidr(self, client, clean_storage, sample_cidr_data):
         """Test retrieving a specific CIDR block"""
         # First create a CIDR block
-        create_response = client.post("/cidrs/", json=sample_cidr_data)
+        create_response = client.post("/api/cidrs/", json=sample_cidr_data)
         assert create_response.status_code == 201
 
         # Then retrieve it
         cidr = sample_cidr_data["cidr"]
-        response = client.get(f"/cidrs/{cidr}")
+        response = client.get(f"/api/cidrs/{cidr}")
         assert response.status_code == 200
         data = response.json()
         assert data["cidr"] == cidr
@@ -125,7 +123,7 @@ class TestCIDRAPI:
 
     def test_get_nonexistent_cidr(self, client, clean_storage):
         """Test retrieving a non-existent CIDR block"""
-        response = client.get("/cidrs/192.168.99.0/24")
+        response = client.get("/api/cidrs/192.168.99.0/24")
         assert response.status_code == 404
         data = response.json()
         assert "not found" in data["detail"].lower()
@@ -133,7 +131,7 @@ class TestCIDRAPI:
     def test_update_cidr(self, client, clean_storage, sample_cidr_data):
         """Test updating an existing CIDR block"""
         # First create a CIDR block
-        create_response = client.post("/cidrs/", json=sample_cidr_data)
+        create_response = client.post("/api/cidrs/", json=sample_cidr_data)
         assert create_response.status_code == 201
 
         # Update it using PUT
@@ -142,7 +140,7 @@ class TestCIDRAPI:
         updated_data["description"] = "Updated description"
 
         cidr = sample_cidr_data["cidr"]
-        response = client.put(f"/cidrs/{cidr}", json=updated_data)
+        response = client.put(f"/api/cidrs/{cidr}", json=updated_data)
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == "Updated Network"
@@ -151,27 +149,27 @@ class TestCIDRAPI:
     def test_delete_cidr(self, client, clean_storage, sample_cidr_data):
         """Test deleting a CIDR block"""
         # First create a CIDR block
-        create_response = client.post("/cidrs/", json=sample_cidr_data)
+        create_response = client.post("/api/cidrs/", json=sample_cidr_data)
         assert create_response.status_code == 201
 
         # Delete it
         cidr = sample_cidr_data["cidr"]
-        response = client.delete(f"/cidrs/{cidr}")
+        response = client.delete(f"/api/cidrs/{cidr}")
         assert response.status_code == 204
 
         # Verify it's gone
-        get_response = client.get(f"/cidrs/{cidr}")
+        get_response = client.get(f"/api/cidrs/{cidr}")
         assert get_response.status_code == 404
 
     def test_delete_nonexistent_cidr(self, client, clean_storage):
         """Test deleting a non-existent CIDR block"""
-        response = client.delete("/cidrs/192.168.99.0/24")
+        response = client.delete("/api/cidrs/192.168.99.0/24")
         assert response.status_code == 404
 
     def test_list_cidrs_with_data(self, client, clean_storage, sample_cidr_data):
         """Test listing CIDRs with data present"""
         # Create a CIDR block
-        client.post("/cidrs/", json=sample_cidr_data)
+        client.post("/api/cidrs/", json=sample_cidr_data)
 
         # Create another CIDR block
         another_data = {
@@ -180,10 +178,10 @@ class TestCIDRAPI:
             "description": "Another test network",
             "tags": {"environment": "test"},
         }
-        client.post("/cidrs/", json=another_data)
+        client.post("/api/cidrs/", json=another_data)
 
         # List all CIDRs
-        response = client.get("/cidrs/")
+        response = client.get("/api/cidrs/")
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 2
@@ -201,11 +199,11 @@ class TestCIDRAPI:
             "description": "Test IPv6 network",
         }
 
-        response = client.post("/cidrs/", json=cidr_data)
+        response = client.post("/api/cidrs/", json=cidr_data)
         assert response.status_code == 201
 
         # Retrieve it
-        response = client.get("/cidrs/2001:db8::/32")
+        response = client.get("/api/cidrs/2001:db8::/32")
         assert response.status_code == 200
         data = response.json()
         assert data["cidr"] == "2001:db8::/32"
@@ -214,7 +212,7 @@ class TestCIDRAPI:
         """Test creating CIDR with invalid data"""
         invalid_data = {"name": "Test Network", "description": "Missing CIDR field"}
 
-        response = client.post("/cidrs/", json=invalid_data)
+        response = client.post("/api/cidrs/", json=invalid_data)
         assert response.status_code == 422  # Validation error
 
     def test_cidr_with_tags(self, client, clean_storage):
@@ -230,11 +228,11 @@ class TestCIDRAPI:
             },
         }
 
-        response = client.post("/cidrs/", json=cidr_data)
+        response = client.post("/api/cidrs/", json=cidr_data)
         assert response.status_code == 201
 
         # Retrieve and verify tags
-        response = client.get("/cidrs/172.16.0.0/12")
+        response = client.get("/api/cidrs/172.16.0.0/12")
         assert response.status_code == 200
         data = response.json()
         assert data["tags"]["environment"] == "production"
@@ -243,30 +241,39 @@ class TestCIDRAPI:
 
     def test_cidr_with_parent_and_children(self, client, clean_storage):
         """Test CIDR creation with parent relationship"""
-        cidr_data = {
-            "cidr": "192.168.0.0/16",
+        # First create the parent CIDR
+        parent_data = {
+            "cidr": "10.0.0.0/8",
+            "name": "Parent Network",
+            "description": "Parent network block",
+        }
+        response = client.post("/api/cidrs/", json=parent_data)
+        assert response.status_code == 201
+
+        # Then create a child CIDR
+        child_data = {
+            "cidr": "10.1.0.0/16",
             "name": "Child Network",
             "parent": "10.0.0.0/8",
         }
-
-        response = client.post("/cidrs/", json=cidr_data)
+        response = client.post("/api/cidrs/", json=child_data)
         assert response.status_code == 201
 
         # Retrieve and verify parent relationship
-        response = client.get("/cidrs/192.168.0.0/16")
+        response = client.get("/api/cidrs/10.1.0.0/16")
         assert response.status_code == 200
         data = response.json()
         assert data["parent"] == "10.0.0.0/8"
 
     def test_create_duplicate_cidr(self, client, clean_storage, sample_cidr_data):
-        """Test creating a duplicate CIDR block should return 409"""
+        """Test creating a duplicate CIDR block should return 422"""
         # First create a CIDR block
-        response = client.post("/cidrs/", json=sample_cidr_data)
+        response = client.post("/api/cidrs/", json=sample_cidr_data)
         assert response.status_code == 201
 
         # Try to create the same CIDR block again
-        response = client.post("/cidrs/", json=sample_cidr_data)
-        assert response.status_code == 409
+        response = client.post("/api/cidrs/", json=sample_cidr_data)
+        assert response.status_code == 422
         data = response.json()
         assert "already exists" in data["detail"]
 
@@ -278,7 +285,7 @@ class TestCIDRAPI:
             "description": "Updated description",
         }
 
-        response = client.put("/cidrs/192.168.99.0/24", json=update_data)
+        response = client.put("/api/cidrs/192.168.99.0/24", json=update_data)
         assert response.status_code == 404
         data = response.json()
         assert "not found" in data["detail"]

@@ -10,6 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 
 from .debug import DEBUG_MODE, log_api_call, log_request_details
+from .auth.middleware import get_current_user, require_read_permission, require_write_permission
+from .auth.models import UserInfo
 from .models import CIDRBlock
 from .rules import ValidationError, validate_cidr
 from .storage import CIDRStorage, get_cidr_storage
@@ -52,20 +54,46 @@ def _sanitize_block(block: CIDRBlock) -> CIDRBlock:
 
 
 @router.get("/cidrs/", response_model=List[CIDRBlock])
-async def list_cidrs(storage: CIDRStorage = Depends(get_storage)):
+async def list_cidrs(
+    storage: CIDRStorage = Depends(get_storage),
+    user: UserInfo = Depends(get_current_user)
+):
     """List all CIDR blocks"""
+    if not user.has_permission("read"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Read permission required"
+        )
     return await storage.list()
 
 
 @router.get("/cidrs", response_model=List[CIDRBlock])
-async def list_cidrs_no_slash(storage: CIDRStorage = Depends(get_storage)):
+async def list_cidrs_no_slash(
+    storage: CIDRStorage = Depends(get_storage),
+    user: UserInfo = Depends(get_current_user)
+):
     """List all CIDR blocks (no trailing slash)"""
+    if not user.has_permission("read"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Read permission required"
+        )
     return await storage.list()
 
 
 @router.post("/cidrs/", response_model=CIDRBlock, status_code=status.HTTP_201_CREATED)
-async def create_cidr(block: CIDRBlock, storage: CIDRStorage = Depends(get_storage)):
+async def create_cidr(
+    block: CIDRBlock,
+    storage: CIDRStorage = Depends(get_storage),
+    user: UserInfo = Depends(get_current_user)
+):
     """Create a new CIDR block"""
+    if not user.has_permission("write"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Write permission required"
+        )
+    
     from .debug import log_cidr_relationship
 
     block = _sanitize_block(block)

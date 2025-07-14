@@ -222,6 +222,7 @@ def cli(ctx):
 @cli.command()
 @click.option("--host", default="0.0.0.0", help="Host to bind the server to")
 @click.option("--port", default=8000, type=int, help="Port to bind the server to")
+@click.option("--config", "-c", help="Path to configuration file (YAML or JSON)")
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
 @click.option(
     "--log-level",
@@ -229,7 +230,7 @@ def cli(ctx):
     type=click.Choice(["debug", "info", "warning", "error", "critical"]),
     help="Logging level",
 )
-def run(host, port, reload, log_level):
+def run(host, port, config, reload, log_level):
     """Start the MiniPAM API server"""
     try:
         import uvicorn
@@ -237,6 +238,8 @@ def run(host, port, reload, log_level):
         from .main import app
 
         click.echo(f"Starting MiniPAM server on {host}:{port}")
+        if config:
+            click.echo(f"Using configuration file: {config}")
         click.echo(f"API documentation available at http://{host}:{port}/docs")
 
         # Set environment variables for the app configuration
@@ -245,6 +248,10 @@ def run(host, port, reload, log_level):
         os.environ["HOST"] = host
         os.environ["PORT"] = str(port)
         os.environ["LOG_LEVEL"] = log_level
+        
+        # Set config file if provided
+        if config:
+            os.environ["MINIPAM_CONFIG_FILE"] = config
 
         uvicorn.run(app, host=host, port=port, reload=reload, log_level=log_level)
     except KeyboardInterrupt:
