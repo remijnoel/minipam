@@ -7,9 +7,11 @@ Supports authorization code flow with PKCE.
 
 import os
 import json
+import secrets
 import urllib.parse
-import urllib.request
-from typing import Optional, Dict, Any
+import httpx
+from typing import Optional, Dict, Any, Tuple
+from fastapi import Request
 from ..base import AuthBackend, AuthenticationError
 from ..models import UserInfo, AuthRequest, OIDCAuthRequest, AuthConfig
 
@@ -145,19 +147,17 @@ class OIDCBackend(AuthBackend):
         if self.client_secret:
             data["client_secret"] = self.client_secret
         
-        # Make token request
-        req_data = urllib.parse.urlencode(data).encode()
-        req = urllib.request.Request(
-            token_endpoint,
-            data=req_data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"}
-        )
-        
-        with urllib.request.urlopen(req) as response:
-            if response.status != 200:
-                raise AuthenticationError(f"Token exchange failed: {response.status}")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                token_endpoint,
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"}
+            )
             
-            return json.loads(response.read().decode())
+            if response.status_code != 200:
+                raise AuthenticationError(f"Token exchange failed: {response.status_code}")
+            
+            return response.json()
     
     async def _get_user_claims(self, token_response: Dict[str, Any]) -> Dict[str, Any]:
         """Get user claims from ID token or userinfo endpoint
@@ -180,17 +180,16 @@ class OIDCBackend(AuthBackend):
         if not userinfo_endpoint:
             raise AuthenticationError("Userinfo endpoint not found")
         
-        # Make userinfo request
-        req = urllib.request.Request(
-            userinfo_endpoint,
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
-        
-        with urllib.request.urlopen(req) as response:
-            if response.status != 200:
-                raise AuthenticationError(f"Userinfo request failed: {response.status}")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                userinfo_endpoint,
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
             
-            return json.loads(response.read().decode())
+            if response.status_code != 200:
+                raise AuthenticationError(f"Userinfo request failed: {response.status_code}")
+            
+            return response.json()
     
     def _map_claims_to_user(self, claims: Dict[str, Any]) -> UserInfo:
         """Map OIDC claims to UserInfo object
@@ -236,11 +235,12 @@ class OIDCBackend(AuthBackend):
             discovery_url = f"{self.issuer_url}/.well-known/openid-configuration"
             
             try:
-                with urllib.request.urlopen(discovery_url) as response:
-                    if response.status != 200:
-                        raise AuthenticationError(f"Discovery failed: {response.status}")
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(discovery_url)
+                    if response.status_code != 200:
+                        raise AuthenticationError(f"Discovery failed: {response.status_code}")
                     
-                    self._discovery_doc = json.loads(response.read().decode())
+                    self._discovery_doc = response.json()
             
             except Exception as e:
                 raise AuthenticationError(f"Failed to fetch discovery document: {str(e)}")
@@ -256,7 +256,7 @@ class OIDCBackend(AuthBackend):
         return AuthConfig(
             enabled=True,
             backend="oidc",
-            login_url=self.get_login_url(),
+            login_url="/auth/login/oidc",
             supports_browser_flow=True
         )
     
@@ -266,7 +266,7 @@ class OIDCBackend(AuthBackend):
         Returns:
             True if auth backend is 'oidc' and required config is present
         """
-        from ...config import get_auth_backend
+        from ...config_loader import get_auth_backend
         auth_backend = get_auth_backend().lower()
         return (
             auth_backend == "oidc" and
@@ -287,21 +287,26 @@ class OIDCBackend(AuthBackend):
             self.redirect_uri
         )
     
-    def get_login_url(self) -> Optional[str]:
-        """Get OIDC authorization URL
+    def get_login_url(self, request: Request) -> Tuple[Optional[str], Dict[str, Any]]:
+        """Get OIDC authorization URL and state cookie
         
         Returns:
-            Authorization URL for browser-based login
+            A tuple containing:
+            - Authorization URL for browser-based login
+            - A dictionary with state cookie parameters
         """
+        cookie: Dict[str, Any] = {}
         if not self.validate_config():
-            return None
+            return None, cookie
+
+        state = secrets.token_urlsafe(32)
         
         params = {
             "response_type": "code",
             "client_id": self.client_id,
             "redirect_uri": self.redirect_uri,
             "scope": self.scope,
-            "state": "oidc_state"  # In production, use a random state value
+            "state": state,
         }
         
         # For Azure OIDC, construct the authorization endpoint
@@ -314,7 +319,19 @@ class OIDCBackend(AuthBackend):
             # Generic OIDC endpoint (fallback)
             auth_endpoint = f"{self.issuer_url}/auth"
         
-        return f"{auth_endpoint}?{urllib.parse.urlencode(params)}"
+        login_url = f"{auth_endpoint}?{urllib.parse.urlencode(params)}"
+        
+        # Prepare the state cookie
+        cookie = {
+            "key": "oidc_state",
+            "value": state,
+            "httponly": True,
+            "max_age": 600,  # 10 minutes
+            "samesite": "lax",
+            "secure": request.url.scheme == "https",
+        }
+        
+        return login_url, cookie
     
     def supports_browser_flow(self) -> bool:
         """OIDC backend supports browser flow

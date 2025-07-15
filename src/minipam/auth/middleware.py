@@ -36,7 +36,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             True if authentication is enabled
         """
         try:
-            from ..config import get_auth_backend
+            from ..config_loader import get_auth_backend
             auth_backend = get_auth_backend().lower()
         except ImportError:
             # Fallback to environment variable if config system not available
@@ -100,7 +100,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         skip_paths = [
             "/auth/config",
             "/auth/login",
-            "/auth/callback",
+            "/auth/callback",  # Covers all callback endpoints
             "/auth/health",
             "/health",
             "/api/health",

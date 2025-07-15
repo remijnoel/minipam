@@ -17,12 +17,18 @@ class AuthManager:
         """Initialize authentication manager"""
         self._backends: Dict[str, AuthBackend] = {}
         self._active_backend: Optional[AuthBackend] = None
-        self._initialize_backends()
+        self._initialized = False
+    
+    def _ensure_initialized(self) -> None:
+        """Ensure backends are initialized (lazy initialization)"""
+        if not self._initialized:
+            self._initialize_backends()
+            self._initialized = True
     
     def _initialize_backends(self) -> None:
         """Initialize all available authentication backends"""
         # Get auth configuration from the config loader
-        from ..config import get_auth_config
+        from ..config_loader import get_auth_config
         auth_config = get_auth_config()
         
         self._backends = {
@@ -36,7 +42,7 @@ class AuthManager:
     
     def _set_active_backend(self) -> None:
         """Set the active authentication backend based on configuration"""
-        from ..config import get_auth_backend
+        from ..config_loader import get_auth_backend
         backend_name = get_auth_backend().lower()
         
         if backend_name not in self._backends:
@@ -65,6 +71,7 @@ class AuthManager:
         Raises:
             AuthConfigurationError: If no backend is configured
         """
+        self._ensure_initialized()
         if self._active_backend is None:
             raise AuthConfigurationError("No authentication backend configured")
         
@@ -79,6 +86,7 @@ class AuthManager:
         Returns:
             AuthBackend instance or None if not found
         """
+        self._ensure_initialized()
         return self._backends.get(name.lower())
     
     def get_available_backends(self) -> Dict[str, AuthBackend]:
@@ -87,6 +95,7 @@ class AuthManager:
         Returns:
             Dictionary of backend name to AuthBackend instance
         """
+        self._ensure_initialized()
         return self._backends.copy()
     
     def get_auth_configuration(self) -> AuthConfig:
@@ -107,7 +116,8 @@ class AuthManager:
     
     def reload_backends(self) -> None:
         """Reload authentication backends (e.g., after config change)"""
-        self._initialize_backends()
+        self._initialized = False
+        self._ensure_initialized()
 
 
 # Global auth manager instance

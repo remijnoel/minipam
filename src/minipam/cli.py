@@ -248,7 +248,7 @@ def run(host, port, config, reload, log_level):
         os.environ["HOST"] = host
         os.environ["PORT"] = str(port)
         os.environ["LOG_LEVEL"] = log_level
-        
+
         # Set config file if provided
         if config:
             os.environ["MINIPAM_CONFIG_FILE"] = config

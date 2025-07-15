@@ -10,8 +10,9 @@ from typing import Dict, List, Optional
 
 import atomicwrites
 import filelock
+from fastapi.concurrency import run_in_threadpool
 
-from .config import CIDR_FILE_PATH
+from .config_loader import get_storage_config
 from .debug import DEBUG_MODE, log_storage_operation
 from .models import CIDRBlock
 
@@ -90,7 +91,11 @@ class InMemoryCIDRStorage(CIDRStorage):
 class FileCIDRStorage(CIDRStorage):
     """File-based storage backend for CIDR blocks with concurrent access protection"""
 
-    def __init__(self, file_path: str = CIDR_FILE_PATH):
+    def __init__(self, file_path: Optional[str] = None):
+        if file_path is None:
+            storage_config = get_storage_config()
+            file_path = storage_config.get("file", {}).get("path", "cidrs.json")
+
         self.file_path = Path(file_path)
         self.lock_path = str(self.file_path) + ".lock"
         self.lock = filelock.FileLock(self.lock_path)
@@ -98,7 +103,7 @@ class FileCIDRStorage(CIDRStorage):
         if DEBUG_MODE:
             logger.debug(f"Initialized FileCIDRStorage with path: {self.file_path}")
 
-    def _load_data(self) -> Dict[str, Dict]:
+    def _load_data_sync(self) -> Dict[str, Dict]:
         """Load data from file, return empty dict if file doesn't exist or is invalid"""
         try:
             if not self.file_path.exists():
@@ -124,7 +129,7 @@ class FileCIDRStorage(CIDRStorage):
                 logger.error(f"Error loading storage file: {e}")
             return {}
 
-    def _save_data(self, data: Dict[str, Dict]) -> None:
+    def _save_data_sync(self, data: Dict[str, Dict]) -> None:
         """Save data to file using atomic writes"""
         # Ensure parent directory exists
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -140,74 +145,88 @@ class FileCIDRStorage(CIDRStorage):
 
     async def get(self, cidr: str) -> Optional[CIDRBlock]:
         """Retrieve a CIDR block by its CIDR string"""
-        with self.lock:
-            data = self._load_data()
-            if cidr not in data:
-                if DEBUG_MODE:
-                    log_storage_operation("get", cidr, success=False)
-                return None
 
-            try:
-                block = CIDRBlock(**data[cidr])
-                if DEBUG_MODE:
-                    log_storage_operation("get", cidr, data=data[cidr], success=True)
-                return block
-            except (ValueError, TypeError, KeyError) as e:
-                if DEBUG_MODE:
-                    logger.error(f"Error parsing CIDR block {cidr}: {e}")
-                    log_storage_operation("get", cidr, success=False)
-                return None
+        def sync_get():
+            with self.lock:
+                data = self._load_data_sync()
+                return data.get(cidr)
+
+        block_data = await run_in_threadpool(sync_get)
+
+        if block_data is None:
+            if DEBUG_MODE:
+                log_storage_operation("get", cidr, success=False)
+            return None
+
+        try:
+            block = CIDRBlock(**block_data)
+            if DEBUG_MODE:
+                log_storage_operation("get", cidr, data=block_data, success=True)
+            return block
+        except (ValueError, TypeError, KeyError) as e:
+            if DEBUG_MODE:
+                logger.error(f"Error parsing CIDR block {cidr}: {e}")
+                log_storage_operation("get", cidr, success=False)
+            return None
 
     async def put(self, block: CIDRBlock) -> None:
         """Store or update a CIDR block"""
-        with self.lock:
-            data = self._load_data()
-            block_dict = block.dict()
-            data[block.cidr] = block_dict
-            self._save_data(data)
 
-            if DEBUG_MODE:
-                log_storage_operation("put", block.cidr, data=block_dict, success=True)
+        def sync_put():
+            with self.lock:
+                data = self._load_data_sync()
+                block_dict = block.dict()
+                data[block.cidr] = block_dict
+                self._save_data_sync(data)
+                return block_dict
+
+        block_dict = await run_in_threadpool(sync_put)
+        if DEBUG_MODE:
+            log_storage_operation("put", block.cidr, data=block_dict, success=True)
 
     async def delete(self, cidr: str) -> None:
         """Delete a CIDR block by its CIDR string"""
-        with self.lock:
-            data = self._load_data()
-            if cidr in data:
-                del data[cidr]
-                self._save_data(data)
-                if DEBUG_MODE:
-                    log_storage_operation("delete", cidr, success=True)
-            else:
-                if DEBUG_MODE:
-                    log_storage_operation("delete", cidr, success=False)
+
+        def sync_delete():
+            with self.lock:
+                data = self._load_data_sync()
+                if cidr in data:
+                    del data[cidr]
+                    self._save_data_sync(data)
+                    return True
+                return False
+
+        success = await run_in_threadpool(sync_delete)
+        if DEBUG_MODE:
+            log_storage_operation("delete", cidr, success=success)
 
     async def list(self) -> List[CIDRBlock]:
         """List all CIDR blocks"""
-        with self.lock:
-            data = self._load_data()
-            blocks = []
-            for block_data in data.values():
-                try:
-                    blocks.append(CIDRBlock(**block_data))
-                except (ValueError, TypeError, KeyError) as e:
-                    # Skip invalid blocks
-                    if DEBUG_MODE:
-                        logger.warning(f"Skipping invalid block: {e}")
-                    continue
 
-            if DEBUG_MODE:
-                blocks_data = [block.dict() for block in blocks]
-                log_storage_operation("list", "all", data=blocks_data, success=True)
+        def sync_list():
+            with self.lock:
+                return self._load_data_sync()
 
-            return blocks
+        data = await run_in_threadpool(sync_list)
+        blocks = []
+        for block_data in data.values():
+            try:
+                blocks.append(CIDRBlock(**block_data))
+            except (ValueError, TypeError, KeyError) as e:
+                # Skip invalid blocks
+                if DEBUG_MODE:
+                    logger.warning(f"Skipping invalid block: {e}")
+                continue
+
+        if DEBUG_MODE:
+            blocks_data = [block.dict() for block in blocks]
+            log_storage_operation("list", "all", data=blocks_data, success=True)
+
+        return blocks
 
 
-# Storage backend factory
 def get_cidr_storage() -> CIDRStorage:
     """Factory function to get the appropriate storage backend"""
-    from .config import get_storage_config
-
     storage_config = get_storage_config()
     storage_type = storage_config.get("type", "memory")
 

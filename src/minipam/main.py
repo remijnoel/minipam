@@ -18,12 +18,12 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import router
 from .auth import AuthMiddleware, auth_router
-from .config import (
+from .config_loader import (
     get_config,
     get_cors_config,
     get_server_config,
@@ -47,7 +47,16 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     """Create and configure the FastAPI application"""
     # Load configuration
     if config_path:
+        print(f"Loading config from provided path: {config_path}")
         load_configuration(config_path)
+    else:
+        # Check for config file in environment variable if no path provided
+        env_config_path = os.getenv("MINIPAM_CONFIG_FILE")
+        if env_config_path:
+            print(f"Loading config from environment: {env_config_path}")
+            load_configuration(env_config_path)
+        else:
+            print("No config path provided, using defaults")
 
     config = get_config()
     server_config = get_server_config()
@@ -197,8 +206,16 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     return fastapi_app
 
 
-# Create the app instance
-app = create_app()
+def get_app() -> FastAPI:
+    """Get the app instance, creating it if needed"""
+    global app
+    if app is None:
+        app = create_app()
+    return app
+
+
+# App instance will be created by main() or on-demand
+app = None
 
 
 def main():
@@ -239,24 +256,38 @@ def main():
     # Load configuration
     try:
         # Check for config file in environment variable first
-        config_file_path = args.config or os.getenv('MINIPAM_CONFIG_FILE')
-        
+        config_file_path = args.config or os.getenv("MINIPAM_CONFIG_FILE")
+
         if config_file_path:
             load_configuration(config_file_path)
         else:
             # Load default configuration
             load_configuration()
 
-        # Validate configuration
-        from .config_loader import validate_config
+        from .config_loader import validate_config, get_auth_backend, get_jwt_config
 
         validate_config()
 
-    except (ImportError, OSError, ValueError) as e:
+        # Security check: ensure JWT secret is set if auth is enabled
+        auth_backend = get_auth_backend()
+        if auth_backend != "none":
+            jwt_config = get_jwt_config()
+            if not jwt_config.get("secret"):
+                print(
+                    "Configuration error: 'auth.jwt.secret' must be set when authentication is enabled."
+                )
+                print(
+                    "Please set it in your config file or via the 'MINIPAM_AUTH_JWT_SECRET' environment variable."
+                )
+                return 1
+
+    except Exception as e:
         print(f"Configuration error: {e}")
         return 1
 
     # Get configuration values
+    from .config_loader import get_config, get_server_config
+
     config = get_config()
     server_config = get_server_config()
 
@@ -268,21 +299,18 @@ def main():
 
     # Update configuration with overrides
     if args.host or args.port or args.debug:
-        from .config import _config
 
-        if _config is None:
-            config_dict = config
-        else:
-            config_dict = _config
         if args.host:
-            config_dict.setdefault("server", {})["host"] = host
+            config.setdefault("server", {})["host"] = host
         if args.port:
-            config_dict.setdefault("server", {})["port"] = port
+            config.setdefault("server", {})["port"] = port
         if args.debug:
-            config_dict["debug"] = debug
+            config["debug"] = debug
 
     # Create the app with the loaded configuration
-    fastapi_app = create_app()
+    global app
+    fastapi_app = create_app(config_file_path)
+    app = fastapi_app  # Set global app for other uses
 
     # Run the server
     try:

@@ -12,9 +12,15 @@ const api = axios.create({
     },
 })
 
-// Request interceptor for logging
+// Request interceptor for logging and authentication
 api.interceptors.request.use(
     (config) => {
+        // Add JWT token to requests if available
+        const token = localStorage.getItem('minipam_access_token')
+        if (token) {
+            config.headers.Authorization = `Bearer ${token}`
+        }
+        
         if (isDebugMode) {
             console.group(`🚀 API Request: ${config.method?.toUpperCase()} ${config.url}`)
             console.log('Headers:', config.headers)
@@ -68,6 +74,22 @@ api.interceptors.response.use(
             console.groupEnd()
         } else {
             console.error('API Error:', error.response?.data || error.message)
+        }
+
+        // Handle authentication errors
+        if (error.response?.status === 401) {
+            // Clear stored tokens on authentication failure
+            localStorage.removeItem('minipam_access_token')
+            localStorage.removeItem('minipam_token_type')
+            localStorage.removeItem('minipam_token_expires')
+            
+            // Check if we should redirect to login
+            const currentPath = window.location.pathname
+            if (currentPath !== '/auth/login/oidc' && !currentPath.startsWith('/auth/callback')) {
+                console.log('Authentication required, redirecting to login...')
+                window.location.href = '/auth/login/oidc'
+                return Promise.reject(error)
+            }
         }
 
         // Extract user-friendly error message from the response

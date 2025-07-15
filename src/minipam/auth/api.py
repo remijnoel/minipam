@@ -101,7 +101,7 @@ async def login_with_apikey(api_key: str) -> AuthResponse:
 
 
 @auth_router.get("/login/oidc")
-async def login_with_oidc():
+async def login_with_oidc(request: Request):
     """Initiate OIDC login flow
     
     Returns:
@@ -116,14 +116,16 @@ async def login_with_oidc():
                 detail="OIDC authentication not configured"
             )
         
-        login_url = backend.get_login_url()
+        login_url, state_cookie = backend.get_login_url(request)
         if not login_url:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="OIDC login URL not available"
             )
         
-        return RedirectResponse(url=login_url)
+        response = RedirectResponse(url=login_url)
+        response.set_cookie(**state_cookie)
+        return response
         
     except Exception as e:
         raise HTTPException(
@@ -144,6 +146,14 @@ async def oidc_callback(request: Request, code: str, state: str):
     Returns:
         Authentication response with access token or browser redirect
     """
+    # Validate state to prevent CSRF
+    stored_state = request.cookies.get("oidc_state")
+    if not stored_state or stored_state != state:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid OIDC state"
+        )
+
     # Complete the authentication
     auth_request = OIDCAuthRequest(backend="oidc", code=code, state=state)
     auth_response = await login(auth_request)
@@ -192,7 +202,9 @@ async def oidc_callback(request: Request, code: str, state: str):
         </body>
         </html>
         """
-        return HTMLResponse(content=html_content)
+        response = HTMLResponse(content=html_content)
+        response.delete_cookie("oidc_state")
+        return response
     else:
         # For API requests, return JSON
         return auth_response

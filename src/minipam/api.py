@@ -3,15 +3,14 @@ FastAPI routes for CIDR Management Service
 """
 
 import logging
-import os
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
 
 from .debug import DEBUG_MODE, log_api_call, log_request_details
-from .auth.middleware import get_current_user, require_read_permission, require_write_permission
+from .auth.middleware import get_current_user
 from .auth.models import UserInfo
+from .config_loader import get_storage_config
 from .models import CIDRBlock
 from .rules import ValidationError, validate_cidr
 from .storage import CIDRStorage, get_cidr_storage
@@ -53,47 +52,45 @@ def _sanitize_block(block: CIDRBlock) -> CIDRBlock:
     return block
 
 
-@router.get("/cidrs/", response_model=List[CIDRBlock])
+@router.get("/cidrs", response_model=List[CIDRBlock], tags=["cidrs"])
 async def list_cidrs(
     storage: CIDRStorage = Depends(get_storage),
-    user: UserInfo = Depends(get_current_user)
+    user: UserInfo = Depends(get_current_user),
 ):
     """List all CIDR blocks"""
     if not user.has_permission("read"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Read permission required"
+            status_code=status.HTTP_403_FORBIDDEN, detail="Read permission required"
         )
     return await storage.list()
 
 
-@router.get("/cidrs", response_model=List[CIDRBlock])
-async def list_cidrs_no_slash(
+@router.get("/cidrs/", response_model=List[CIDRBlock], include_in_schema=False)
+async def list_cidrs_slash(
     storage: CIDRStorage = Depends(get_storage),
-    user: UserInfo = Depends(get_current_user)
+    user: UserInfo = Depends(get_current_user),
 ):
     """List all CIDR blocks (no trailing slash)"""
-    if not user.has_permission("read"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Read permission required"
-        )
-    return await storage.list()
+    return await list_cidrs(storage, user)
 
 
-@router.post("/cidrs/", response_model=CIDRBlock, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/cidrs",
+    response_model=CIDRBlock,
+    status_code=status.HTTP_201_CREATED,
+    tags=["cidrs"],
+)
 async def create_cidr(
     block: CIDRBlock,
     storage: CIDRStorage = Depends(get_storage),
-    user: UserInfo = Depends(get_current_user)
+    user: UserInfo = Depends(get_current_user),
 ):
     """Create a new CIDR block"""
     if not user.has_permission("write"):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Write permission required"
+            status_code=status.HTTP_403_FORBIDDEN, detail="Write permission required"
         )
-    
+
     from .debug import log_cidr_relationship
 
     block = _sanitize_block(block)
@@ -126,66 +123,30 @@ async def create_cidr(
         )
 
 
-@router.post("/cidrs", response_model=CIDRBlock, status_code=status.HTTP_201_CREATED)
-async def create_cidr_no_slash(
-    block: CIDRBlock, storage: CIDRStorage = Depends(get_storage)
+@router.post(
+    "/cidrs/",
+    response_model=CIDRBlock,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
+async def create_cidr_slash(
+    block: CIDRBlock,
+    storage: CIDRStorage = Depends(get_storage),
+    user: UserInfo = Depends(get_current_user),
 ):
     """Create a new CIDR block (no trailing slash)"""
-    from .debug import log_cidr_relationship
-
-    block = _sanitize_block(block)
-
-    try:
-        # Validate the CIDR block against all rules
-        await validate_cidr(block, storage)
-
-        # Log parent-child relationship if parent is specified
-        if block.parent:
-            parent_block = await storage.get(block.parent)
-            if parent_block:
-                log_cidr_relationship(block.parent, block.cidr, "create", success=True)
-            else:
-                log_cidr_relationship(block.parent, block.cidr, "create", success=False)
-                logger.warning(
-                    "Parent CIDR %s specified for %s doesn't exist",
-                    block.parent,
-                    block.cidr,
-                )
-
-        await storage.put(block)
-        return block
-
-    except ValidationError as e:
-        # Return a clear error message for the UI/CLI
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
-        )
+    return await create_cidr(block, storage, user)
 
 
-@router.put("/cidrs", status_code=status.HTTP_400_BAD_REQUEST)
-async def update_cidr_missing_path_no_slash(request: Request):
-    """Handle PUT requests to /cidrs without a CIDR path parameter"""
-    if DEBUG_MODE:
-        logger.warning("PUT request to /cidrs without CIDR path parameter")
-        body = await request.body()
-        log_request_details(request, body=body.decode("utf-8", errors="replace"))
-        log_api_call("/cidrs", "PUT", response_code=400)
-
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="PUT requests require a CIDR path parameter, e.g. PUT /cidrs/192.168.1.0/24",
-    )
-
-
-@router.put("/cidrs/", status_code=status.HTTP_400_BAD_REQUEST)
+@router.put("/cidrs", status_code=status.HTTP_400_BAD_REQUEST, include_in_schema=False)
+@router.put("/cidrs/", status_code=status.HTTP_400_BAD_REQUEST, include_in_schema=False)
 async def update_cidr_missing_path(request: Request):
-    """Handle PUT requests to /cidrs/ without a CIDR path parameter"""
+    """Handle PUT requests to /cidrs or /cidrs/ without a CIDR path parameter"""
     if DEBUG_MODE:
-        logger.warning("PUT request to /cidrs/ without CIDR path parameter")
+        logger.warning("PUT request to /cidrs or /cidrs/ without CIDR path parameter")
         body = await request.body()
         log_request_details(request, body=body.decode("utf-8", errors="replace"))
-        log_api_call("/cidrs/", "PUT", response_code=400)
+        log_api_call(request.url.path, "PUT", response_code=400)
 
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
@@ -289,6 +250,5 @@ async def delete_cidr(cidr: str, storage: CIDRStorage = Depends(get_storage)):
 @router.get("/health")
 async def health_check():
     """Health check endpoint"""
-    from .config import USE_FILE_BACKEND
-
-    return {"status": "healthy", "backend": "file" if USE_FILE_BACKEND else "memory"}
+    storage_config = get_storage_config()
+    return {"status": "healthy", "backend": storage_config.get("type", "memory")}

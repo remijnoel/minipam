@@ -13,7 +13,7 @@ import hmac
 from typing import Optional, Dict, Any, Union
 from .models import UserInfo, JWTPayload
 from .base import AuthTokenError
-from ..config import get_jwt_config
+from ..config_loader import get_jwt_config
 
 
 class JWTHandler:

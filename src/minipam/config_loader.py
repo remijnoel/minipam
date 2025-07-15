@@ -33,6 +33,7 @@ class ConfigLoader:
     def __init__(self):
         self.config: Dict[str, Any] = {}
         self._loaded_from: Optional[str] = None
+        self._is_loaded = False
 
     def load_from_file(self, config_path: Union[str, Path]) -> Dict[str, Any]:
         """Load configuration from a file (YAML or JSON)"""
@@ -69,19 +70,16 @@ class ConfigLoader:
 
             self._loaded_from = str(config_path)
             logger.info(f"Configuration loaded from {config_path}")
+            self._is_loaded = True
 
             # Apply environment variable overrides
             self._apply_env_overrides()
 
-            return self.config
+            return self.get_config()
 
         except (yaml.YAMLError if HAS_YAML else Exception, json.JSONDecodeError) as e:
             raise ConfigurationError(
                 f"Error parsing configuration file {config_path}: {e}"
-            )
-        except OSError as e:
-            raise ConfigurationError(
-                f"Error reading configuration file {config_path}: {e}"
             )
 
     def _apply_env_overrides(self):
@@ -127,19 +125,13 @@ class ConfigLoader:
                         continue  # Don't override if not 'true'
 
                 # Special handling for port (convert to int)
-                if config_path[-1] == "port":
+                if config_path[-1] in ("port", "expiry_hours"):
                     try:
                         value = int(value)
                     except ValueError:
-                        logger.warning("Invalid port value in %s: %s", env_var, value)
-                        continue
-
-                # Special handling for expiry_hours (convert to int)
-                if config_path[-1] == "expiry_hours":
-                    try:
-                        value = int(value)
-                    except ValueError:
-                        logger.warning("Invalid expiry_hours value in %s: %s", env_var, value)
+                        logger.warning(
+                            "Invalid integer value in %s: %s", env_var, value
+                        )
                         continue
 
                 # Special handling for debug (convert to bool)
@@ -149,29 +141,30 @@ class ConfigLoader:
                 # Set the value in config
                 self._set_nested_value(self.config, config_path, value)
                 logger.debug(
-                    "Applied environment override: %s -> %s = %s", env_var, '.'.join(config_path), value
+                    "Applied environment override: %s -> %s = %s",
+                    env_var,
+                    ".".join(map(str, config_path)),
+                    value,
                 )
 
         # Handle API key environment variables (MINIPAM_API_KEY_<USERNAME>=<key>:<role>)
         for env_var, env_value in os.environ.items():
             if env_var.startswith("MINIPAM_API_KEY_"):
-                username = env_var[len("MINIPAM_API_KEY_"):].lower()
+                username = env_var[len("MINIPAM_API_KEY_") :].lower()
                 if ":" in env_value:
                     # Ensure auth.api_keys section exists
                     if "auth" not in self.config:
                         self.config["auth"] = {}
                     if "api_keys" not in self.config["auth"]:
                         self.config["auth"]["api_keys"] = {}
-                    
+
                     self.config["auth"]["api_keys"][username] = env_value
                     logger.debug("Applied API key for user: %s", username)
 
     def _set_nested_value(self, config: Dict[str, Any], path: list, value: Any):
         """Set a nested value in the configuration dictionary"""
         for key in path[:-1]:
-            if key not in config:
-                config[key] = {}
-            config = config[key]
+            config = config.setdefault(key, {})
         config[path[-1]] = value
 
     def get_default_config(self) -> Dict[str, Any]:
@@ -188,7 +181,7 @@ class ConfigLoader:
             "auth": {
                 "backend": "none",
                 "jwt": {
-                    "secret": "default-secret-change-in-production",
+                    "secret": None,
                     "algorithm": "HS256",
                     "expiry_hours": 8,
                 },
@@ -209,19 +202,15 @@ class ConfigLoader:
     def get_config(self) -> Dict[str, Any]:
         """Get the current configuration, merging with defaults"""
         default_config = self.get_default_config()
-
-        if not self.config:
-            return default_config
-
-        # Deep merge configuration
-        return self._deep_merge(default_config, self.config)
+        # Deep merge user config over defaults
+        merged_config = self._deep_merge(default_config, self.config)
+        return merged_config
 
     def _deep_merge(
         self, base: Dict[str, Any], override: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Deep merge two dictionaries"""
         result = base.copy()
-
         for key, value in override.items():
             if (
                 key in result
@@ -231,7 +220,6 @@ class ConfigLoader:
                 result[key] = self._deep_merge(result[key], value)
             else:
                 result[key] = value
-
         return result
 
     def validate_config(self, config: Optional[Dict[str, Any]] = None) -> bool:
@@ -254,7 +242,7 @@ class ConfigLoader:
         # Validate server configuration
         server_config = config.get("server", {})
         port = server_config.get("port")
-        if not isinstance(port, int) or port < 1 or port > 65535:
+        if not isinstance(port, int) or not (1 <= port <= 65535):
             raise ConfigurationError(
                 f"Invalid port: {port}. Must be an integer between 1 and 65535"
             )
@@ -278,33 +266,108 @@ class ConfigLoader:
                 raise ConfigurationError(
                     "YAML support not available. Install PyYAML: pip install PyYAML"
                 )
-
             with open(path, "w", encoding="utf-8") as f:
                 yaml.dump(config, f, default_flow_style=False, indent=2)
         else:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2)
-
         logger.info("Example configuration saved to %s", path)
 
 
-# Global config loader instance
+# --- Singleton Instance ---
 config_loader = ConfigLoader()
 
 
-def load_config(config_path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
+# --- Public Functions ---
+def load_configuration(
+    config_path: Optional[Union[str, Path]] = None,
+) -> Dict[str, Any]:
     """Load configuration from file or return defaults"""
     if config_path:
         return config_loader.load_from_file(config_path)
-    else:
-        return config_loader.get_config()
+
+    # If no path is provided and config is not loaded, apply env vars over defaults
+    if not config_loader._is_loaded:
+        config_loader._apply_env_overrides()
+        config_loader._is_loaded = True
+
+    return config_loader.get_config()
 
 
 def get_config() -> Dict[str, Any]:
-    """Get the current configuration"""
+    """Get the current configuration, loading if necessary."""
+    if not config_loader._is_loaded:
+        load_configuration()
     return config_loader.get_config()
 
 
 def validate_config(config: Optional[Dict[str, Any]] = None) -> bool:
     """Validate configuration"""
     return config_loader.validate_config(config)
+
+
+def save_example_config(path: Union[str, Path], config_format: str = "yaml"):
+    """Save an example configuration file"""
+    config_loader.save_example_config(path, config_format)
+
+
+# --- Configuration Accessor Functions ---
+def _get_config_value(path: list, default_value: Any = None) -> Any:
+    """Get a configuration value using a list of keys."""
+    config = get_config()
+    for key in path:
+        if isinstance(config, dict) and key in config:
+            config = config[key]
+        else:
+            return default_value
+    return config
+
+
+def get_storage_config() -> Dict[str, Any]:
+    """Get storage configuration"""
+    return _get_config_value(["storage"], {})
+
+
+def get_server_config() -> Dict[str, Any]:
+    """Get server configuration"""
+    return _get_config_value(["server"], {})
+
+
+def get_cors_config() -> Dict[str, Any]:
+    """Get CORS configuration"""
+    return _get_config_value(["cors"], {})
+
+
+def get_ui_config() -> Dict[str, Any]:
+    """Get UI configuration"""
+    return _get_config_value(["ui"], {})
+
+
+def get_auth_config() -> Dict[str, Any]:
+    """Get authentication configuration"""
+    return _get_config_value(["auth"], {})
+
+
+def get_auth_backend() -> str:
+    """Get the authentication backend name"""
+    return _get_config_value(["auth", "backend"], "none")
+
+
+def get_jwt_config() -> Dict[str, Any]:
+    """Get JWT configuration"""
+    return _get_config_value(["auth", "jwt"], {})
+
+
+def get_api_keys_config() -> Dict[str, str]:
+    """Get API keys configuration"""
+    return _get_config_value(["auth", "api_keys"], {})
+
+
+def get_oidc_config() -> Dict[str, Any]:
+    """Get OIDC configuration"""
+    return _get_config_value(["auth", "oidc"], {})
+
+
+def get_debug_mode() -> bool:
+    """Get debug mode status"""
+    return _get_config_value(["debug"], False)
