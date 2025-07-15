@@ -14,7 +14,8 @@
 | `storage_backend_spec.md` | Pluggable storage backend interface & contracts |
 | `auth_backend_spec.md` | Pluggable authentication backend interface & contracts |
 | `cidr_hierarchy_spec.md` | CIDR model, hierarchy rules, validation engine |
-| `ui_spec.md` | Modern SPA consuming the API |
+| `ui_spec.md` | Embedded SPA served at /ui endpoint |
+| `config_spec.md` | Viper-style configuration management with env var overrides |
 
 ---
 
@@ -25,14 +26,17 @@
 3. **Zero State Corruption:** CIDR hierarchy must never contain overlaps or duplicates.  
 4. **Test‑Driven Development:** Every requirement has acceptance criteria.  
 5. **Security by Default:** No plaintext secrets; least‑privilege access patterns.
+6. **Viper-Style Configuration:** Environment variables override config file values with dot-notation mapping (e.g., `MINIPAM_STORAGE_TYPE` overrides `storage.type` in config file).
+7. **Embedded UI:** Web interface served at `/ui` endpoint, bundled with the application for single-binary deployment.
 
 ---
 
 ## Known Limitations (for POC → Prod)
 
 - No RBAC or fine‑grained ACLs yet.  
-- File‑based storage lacks concurrency guarantees under heavy write contention.  
+- File‑based storage uses file locking for concurrency control (suitable for typical SaaS workloads).  
 - UI lacks offline support and accessibility audit.
+- IPv4 only (IPv6 support deferred to future versions).
 
 ---
 

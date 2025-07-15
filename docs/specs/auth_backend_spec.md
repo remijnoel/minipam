@@ -21,6 +21,7 @@ Provide a pluggable auth layer so deployments can choose anything from
   - `revoke(token:str) -> None` *(optional)*  
 - Must set `UserInfo.roles` although RBAC enforcement is out of scope.
 - Configurable via dict (issuer URL, JWKS, client_id…).
+- Configuration follows Viper-style env var mapping (`MINIPAM_AUTH_*` overrides config file values).
 
 ### Non-Functional Requirements
 - Latency budget: ≤ 100 ms added per request.  

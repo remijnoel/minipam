@@ -1,14 +1,15 @@
 # Modern Web UI
 
 ## Objective
-Deliver a single-page application (SPA) that consumes the REST API and
+Deliver an embedded single-page application (SPA) served at `/ui` that consumes the REST API and
 visualises CIDR blocks in a collapsible tree with create/update/delete
 flows.
 
 ---
 
 ## Background / Context
-- POC had a minimal React front; this spec formalises UX for prod.
+- UI is embedded within the Python application and served at `/ui` endpoint.
+- Bundled as static assets for single-binary deployment via pip install.
 
 ---
 
@@ -42,8 +43,9 @@ flows.
 ---
 
 ## Dependencies / Constraints
-- Any modern JS framework (React, Vue, Svelte) acceptable; must ship compiled static assets.  
+- Vue.js 3 with compiled static assets bundled into the Python package.  
 - No CSS frameworks requiring runtime JS (e.g., no jQuery UI).
+- Assets served from `/ui` endpoint by FastAPI static file handler.
 
 ---
 
@@ -66,4 +68,5 @@ flows.
 ---
 
 ## Future Considerations / TODO
-- Offline PWAsync with service workers.
+- Offline PWA with service workers.
+- Build process integration with Python packaging.

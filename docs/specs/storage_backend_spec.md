@@ -8,8 +8,9 @@ core logic.
 ---
 
 ## Background / Context
-- POC ships File & In-Memory backends.
-- Need prod-ready alternatives (SQL, object storage).
+- File-based storage is the primary backend for production deployment.
+- In-Memory backend for testing and development.
+- SQL/NoSQL backends are future extensions that must implement the same interface.
 
 ---
 
@@ -26,9 +27,10 @@ core logic.
 - Backends must accept config via typed dict (e.g., connection string).
 
 ### Non-Functional Requirements
-- Thread-safe or async-safe under FastAPI default workers.  
+- Thread-safe using file locking for concurrent access (typical SaaS workload pattern).  
 - 95th-percentile `get` latency < 20 ms at 10 k CIDRs.  
 - Must not mutate input objects (defensive copy).
+- File backend uses atomic writes with file locking to prevent corruption.
 
 ### Out of Scope
 - Schema migrations (handled by caller).  

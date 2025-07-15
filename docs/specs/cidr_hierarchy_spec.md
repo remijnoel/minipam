@@ -2,7 +2,7 @@
 
 ## Objective
 Guarantee CIDR uniqueness, non-overlap, and a navigable parent/child
-hierarchy for both IPv4 and IPv6.
+hierarchy for IPv4 networks.
 
 ---
 
@@ -25,7 +25,7 @@ hierarchy for both IPv4 and IPv6.
 5. **Traversal API:** `list_children(cidr, depth)` returns tree slice.
 
 ### Non-Functional Requirements
-- Support IPv6 up to `/64` granularity.  
+- No artificial limit on hierarchy depth (supports hundreds of nested levels).  
 - Worst-case validation time: O(n log n) where n = #CIDRs.
 
 ### Out of Scope
@@ -46,15 +46,15 @@ hierarchy for both IPv4 and IPv6.
 ---
 
 ## Edge Cases / Gotchas
-- Mixed IPv4/IPv6 must not share parentage.  
 - `/0` (default route) is **disallowed** to avoid root-level ambiguity.  
-- Inserting `/31` (point-to-point) or `/128` valid but child rules still apply.
+- Inserting `/31` (point-to-point) valid but child rules still apply.
+- Deep nesting (100+ levels) should not cause performance degradation.
 
 ---
 
 ## Testing & Acceptance Criteria
 - Exhaustive unit tests for: duplicate, nested, sibling-overlap,
-  v4/v6 mixing, boundary prefixes (`/0`, `/32`, `/128`).
+  boundary prefixes (`/0`, `/32`), and deep nesting scenarios.
 
 ---
 

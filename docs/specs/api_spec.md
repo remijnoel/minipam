@@ -66,9 +66,9 @@ Errors follow RFC 7807 (`application/problem+json`).
 ---
 
 ## Edge Cases / Gotchas
-- IPv6 support (e.g., `/48` blocks) must behave same as IPv4.  
-- Concurrent create/delete on overlapping CIDRs → deterministic conflict (409).  
+- Concurrent create/delete on overlapping CIDRs → deterministic conflict (409) using file locking.  
 - Query params must reject invalid CIDR filters early (400).
+- Race conditions handled via atomic file operations with locking (standard SaaS pattern).
 
 ---
 
