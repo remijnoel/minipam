@@ -1,0 +1,40 @@
+# MiniPAM Configuration - OIDC Authentication Example
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+
+storage:
+  type: "file"
+  path: "./data"
+
+auth:
+  backend: "oidc"
+  oidc:
+    issuer_url: "https://your-oidc-provider.com"
+    client_id: "minipam-client"
+    # SECURITY: Never put client_secret in config files!
+    # Use environment variable instead:
+    # MINIPAM_AUTH_OIDC_CLIENT_SECRET=your-actual-client-secret
+    client_secret: ""
+    jwks_cache_ttl: 600
+
+ui:
+  enabled: true
+  path: "/ui"
+
+# Example environment variables for OIDC:
+# MINIPAM_AUTH_OIDC_ISSUER_URL=https://auth.example.com
+# MINIPAM_AUTH_OIDC_CLIENT_ID=minipam-prod
+# MINIPAM_AUTH_OIDC_CLIENT_SECRET=your-production-secret
+
+# Usage with JWT token:
+# curl -H "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9..." \
+#      http://localhost:8000/api/v1/cidrs
+
+# Common OIDC Providers:
+# - Azure AD: https://login.microsoftonline.com/{tenant-id}/v2.0
+# - Auth0: https://{domain}.auth0.com/
+# - Keycloak: https://{server}/auth/realms/{realm}
+# - Google: https://accounts.google.com

@@ -1,0 +1,40 @@
+# Docker Compose configuration for MiniPAM
+
+version: '3.8'
+
+services:
+  minipam:
+    build: 
+      context: .
+      target: production
+    container_name: minipam
+    ports:
+      - "8000:8000"
+    environment:
+      - MINIPAM_STORAGE_TYPE=file
+      - MINIPAM_STORAGE_PATH=/app/data
+      - MINIPAM_AUTH_BACKEND=none
+      - ENABLE_NOAUTH=true
+      - MINIPAM_SERVER_HOST=0.0.0.0
+      - MINIPAM_SERVER_PORT=8000
+      - MINIPAM_UI_ENABLED=true
+    volumes:
+      - minipam-data:/app/data
+      - ./config.yaml:/etc/minipam/config.yaml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/api/v1/health/live')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - minipam-network
+
+volumes:
+  minipam-data:
+    driver: local
+
+networks:
+  minipam-network:
+    driver: bridge
