@@ -25,7 +25,7 @@ class CIDRValidationEngine:
             self._validate_hierarchy_consistency,
         ]
 
-    async def validate(
+    def validate(
         self, block: CIDRBlock, storage: StorageBackend
     ) -> ValidationResult:
         """Validate a CIDR block against all rules."""
@@ -34,19 +34,19 @@ class CIDRValidationEngine:
         # Run all validation rules
         for rule in self.validation_rules:
             try:
-                await rule(block, storage, result)
+                rule(block, storage, result)
             except Exception as e:
-                result.add_error(f"Validation error: {str(e)}")
+                result.add_error(f"Validation failed: {str(e)}")
 
         return result
 
-    async def validate_create(
+    def validate_create(
         self, block: CIDRBlock, storage: StorageBackend
     ) -> ValidationResult:
         """Validate a CIDR block for creation."""
-        return await self.validate(block, storage)
+        return self.validate(block, storage)
 
-    async def validate_update(
+    def validate_update(
         self, original_cidr: str, updated_block: CIDRBlock, storage: StorageBackend
     ) -> ValidationResult:
         """Validate a CIDR block for update."""
@@ -54,7 +54,7 @@ class CIDRValidationEngine:
         result = ValidationResult(is_valid=True)
 
         # Get all existing blocks except the one being updated
-        all_blocks = await storage.list(limit=1000)  # TODO: Handle pagination properly
+        all_blocks = storage.list()  # Get all blocks
         other_blocks = [b for b in all_blocks if b.cidr != original_cidr]
 
         # Run validation against other blocks
@@ -62,13 +62,13 @@ class CIDRValidationEngine:
             if rule.__name__ in ["_validate_no_duplicates", "_validate_no_overlaps"]:
                 # Use modified storage that excludes the original block
                 mock_storage = MockStorageForUpdate(other_blocks)
-                await rule(updated_block, mock_storage, result)
+                rule(updated_block, mock_storage, result)
             else:
-                await rule(updated_block, storage, result)
+                rule(updated_block, storage, result)
 
         return result
 
-    async def _validate_cidr_format(
+    def _validate_cidr_format(
         self, block: CIDRBlock, storage: StorageBackend, result: ValidationResult
     ) -> None:
         """Validate CIDR format is correct - IPv4 only."""
@@ -77,18 +77,18 @@ class CIDRValidationEngine:
         except AddressValueError as e:
             result.add_error(f"Invalid CIDR format: {str(e)}")
 
-    async def _validate_parent_exists(
+    def _validate_parent_exists(
         self, block: CIDRBlock, storage: StorageBackend, result: ValidationResult
     ) -> None:
         """Validate that parent CIDR exists if specified."""
         if not block.parent:
             return
 
-        parent_block = await storage.get(block.parent)
+        parent_block = storage.get(block.parent)
         if not parent_block:
             result.add_error(f"Parent CIDR {block.parent} does not exist")
 
-    async def _validate_parent_relationship(
+    def _validate_parent_relationship(
         self, block: CIDRBlock, storage: StorageBackend, result: ValidationResult
     ) -> None:
         """Validate that CIDR is actually a subnet of its parent."""
@@ -102,21 +102,26 @@ class CIDRValidationEngine:
 
             # Check if cidr is a subnet of parent
             if not cidr_net.subnet_of(parent_net):
-                result.add_error(
-                    f"CIDR {block.cidr} is not a subnet of parent {block.parent}"
-                )
+                if cidr_net.supernet_of(parent_net):
+                    result.add_error(
+                        f"CIDR {block.cidr} cannot be broader than its parent {block.parent}"
+                    )
+                else:
+                    result.add_error(
+                        f"CIDR {block.cidr} is not a subnet of parent {block.parent}"
+                    )
         except (AddressValueError, AttributeError) as e:
             result.add_error(f"Cannot validate parent relationship: {str(e)}")
 
-    async def _validate_no_duplicates(
+    def _validate_no_duplicates(
         self, block: CIDRBlock, storage: StorageBackend, result: ValidationResult
     ) -> None:
         """Validate that CIDR doesn't already exist."""
-        existing_block = await storage.get(block.cidr)
+        existing_block = storage.get(block.cidr)
         if existing_block:
             result.add_error(f"CIDR {block.cidr} already exists")
 
-    async def _validate_no_overlaps(
+    def _validate_no_overlaps(
         self, block: CIDRBlock, storage: StorageBackend, result: ValidationResult
     ) -> None:
         """Validate that CIDR doesn't overlap with existing blocks."""
@@ -125,9 +130,7 @@ class CIDRValidationEngine:
             new_net = IPv4Network(block.cidr, strict=False)
 
             # Check against all existing blocks
-            all_blocks = await storage.list(
-                limit=1000
-            )  # TODO: Handle pagination properly
+            all_blocks = storage.list()  # Get all blocks
 
             for existing_block in all_blocks:
                 if existing_block.cidr == block.cidr:
@@ -139,14 +142,33 @@ class CIDRValidationEngine:
 
                     # Check for overlaps
                     if new_net.overlaps(existing_net):
-                        # Allow if one is a subnet of the other (hierarchy)
-                        if not (
-                            new_net.subnet_of(existing_net)
-                            or existing_net.subnet_of(new_net)
-                        ):
-                            result.add_error(
-                                f"CIDR {block.cidr} overlaps with existing CIDR {existing_block.cidr}"
+                        # Check if this is a proper parent-child relationship
+                        is_valid_hierarchy = False
+                        
+                        if new_net.subnet_of(existing_net):
+                            # New block is child of existing - allow if:
+                            # 1. New declares existing as its parent (direct parent-child), OR
+                            # 2. New has a valid parent that creates a valid hierarchy path
+                            is_valid_hierarchy = (
+                                block.parent == existing_block.cidr or 
+                                (block.parent is not None and self._is_valid_hierarchy_path(block, existing_block, storage))
                             )
+                        elif existing_net.subnet_of(new_net):
+                            # Existing block is child of new - allow if:
+                            # 1. Existing declares new as parent, OR
+                            # 2. Existing has no parent (orphaned child that can be organized under new parent)
+                            is_valid_hierarchy = (existing_block.parent == block.cidr or existing_block.parent is None)
+                        
+                        if not is_valid_hierarchy:
+                            # Check if they are siblings (same parent)
+                            if block.parent and existing_block.parent and block.parent == existing_block.parent:
+                                result.add_error(
+                                    f"CIDR {block.cidr} overlaps with sibling CIDR {existing_block.cidr}"
+                                )
+                            else:
+                                result.add_error(
+                                    f"CIDR {block.cidr} overlaps with existing CIDR {existing_block.cidr}"
+                                )
 
                 except AddressValueError:
                     # Skip invalid existing blocks
@@ -155,7 +177,7 @@ class CIDRValidationEngine:
         except AddressValueError as e:
             result.add_error(f"Cannot validate overlaps: {str(e)}")
 
-    async def _validate_hierarchy_consistency(
+    def _validate_hierarchy_consistency(
         self, block: CIDRBlock, storage: StorageBackend, result: ValidationResult
     ) -> None:
         """Validate that the CIDR hierarchy remains consistent."""
@@ -164,9 +186,7 @@ class CIDRValidationEngine:
 
         try:
             # Get all blocks to check hierarchy
-            all_blocks = await storage.list(
-                limit=1000
-            )  # TODO: Handle pagination properly
+            all_blocks = storage.list()  # Get all blocks
 
             # Parse the new block's network (IPv4 only)
             new_net = IPv4Network(block.cidr, strict=False)
@@ -188,6 +208,104 @@ class CIDRValidationEngine:
 
         except Exception as e:
             result.add_warning(f"Could not fully validate hierarchy: {str(e)}")
+    
+    def list_children(self, parent_cidr: str, storage: StorageBackend, depth: Optional[int] = None) -> List[CIDRBlock]:
+        """List children of a CIDR block up to a specified depth."""
+        all_blocks = storage.list()
+        children = []
+        
+        def collect_children_recursive(current_parent: str, current_depth: int, max_depth: Optional[int]):
+            # Find direct children of current parent
+            direct_children = [block for block in all_blocks if block.parent == current_parent]
+            
+            for child in direct_children:
+                children.append(child)
+                
+                # Recurse if we haven't reached max depth
+                # current_depth represents the depth of the children we just added
+                # We can recurse if current_depth < max_depth
+                if max_depth is None or current_depth < max_depth:
+                    collect_children_recursive(child.cidr, current_depth + 1, max_depth)
+        
+        # Start the recursive collection
+        # depth=1 means include children and grandchildren  
+        # depth=2 means include children and grandchildren (but limit at 2 generations)
+        collect_children_recursive(parent_cidr, 0, depth)
+        
+        return children
+    
+    def get_tree(self, storage: StorageBackend, root: Optional[str] = None):
+        """Get hierarchical tree structure of CIDR blocks."""
+        all_blocks = storage.list()
+        
+        if root:
+            # Find the root block and build tree from there
+            root_block = storage.get(root)
+            if not root_block:
+                return []
+            return [self._build_tree_node(root_block, all_blocks)]
+        else:
+            # Build tree from all root blocks (blocks with no parent)
+            root_blocks = [block for block in all_blocks if not block.parent]
+            tree = []
+            for root_block in root_blocks:
+                tree.append(self._build_tree_node(root_block, all_blocks))
+            return tree
+    
+    def _build_tree_node(self, block: CIDRBlock, all_blocks: List[CIDRBlock]) -> dict:
+        """Build a tree node for a CIDR block."""
+        # Find direct children
+        children = [b for b in all_blocks if b.parent == block.cidr]
+        
+        node = {
+            "cidr": block.cidr,
+            "name": block.name,
+            "tags": block.tags,
+            "children": []
+        }
+        
+        # Recursively build children
+        for child in children:
+            node["children"].append(self._build_tree_node(child, all_blocks))
+        
+        return node
+    
+    def _would_be_child(self, child_block: CIDRBlock, parent_block: CIDRBlock) -> bool:
+        """Check if a CIDR block would be a valid child of another."""
+        try:
+            child_net = IPv4Network(child_block.cidr, strict=False)
+            parent_net = IPv4Network(parent_block.cidr, strict=False)
+            return child_net.subnet_of(parent_net)
+        except AddressValueError:
+            return False
+    
+    def _is_valid_hierarchy_path(self, new_block: CIDRBlock, ancestor_block: CIDRBlock, storage: StorageBackend) -> bool:
+        """Check if there's a valid hierarchy path from new block to ancestor through parents."""
+        if not new_block.parent:
+            return False
+        
+        # Get the declared parent
+        parent_block = storage.get(new_block.parent)
+        if not parent_block:
+            return False
+        
+        # If the parent is the ancestor, it's valid
+        if parent_block.cidr == ancestor_block.cidr:
+            return True
+        
+        # Check if the parent is also contained within the ancestor
+        try:
+            from ipaddress import IPv4Network, AddressValueError
+            parent_net = IPv4Network(parent_block.cidr, strict=False)
+            ancestor_net = IPv4Network(ancestor_block.cidr, strict=False)
+            
+            if parent_net.subnet_of(ancestor_net):
+                # Recursively check if the parent has a valid path to the ancestor
+                return self._is_valid_hierarchy_path(parent_block, ancestor_block, storage)
+        except AddressValueError:
+            pass
+        
+        return False
 
 
 class MockStorageForUpdate:
@@ -196,20 +314,19 @@ class MockStorageForUpdate:
     def __init__(self, blocks: List[CIDRBlock]):
         self.blocks = blocks
 
-    async def get(self, cidr: str) -> Optional[CIDRBlock]:
+    def get(self, cidr: str) -> Optional[CIDRBlock]:
         """Get a CIDR block by its CIDR notation."""
         for block in self.blocks:
             if block.cidr == cidr:
                 return block
         return None
 
-    async def list(
-        self, offset: int = 0, limit: int = 100, tags: Optional[List[str]] = None
-    ) -> List[CIDRBlock]:
+    def list(self, **kwargs) -> List[CIDRBlock]:
         """List CIDR blocks with optional filtering."""
         blocks = self.blocks
 
         # Filter by tags if provided
+        tags = kwargs.get('tags')
         if tags:
             filtered_blocks = []
             for block in blocks:
@@ -217,5 +334,4 @@ class MockStorageForUpdate:
                     filtered_blocks.append(block)
             blocks = filtered_blocks
 
-        # Apply pagination
-        return blocks[offset : offset + limit]
+        return blocks

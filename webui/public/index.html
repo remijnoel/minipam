@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="MiniPAM - Minimalistic IP Address Management">
+  <title>MiniPAM</title>
+  <style>
+    /* Basic CSS reset and styling */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.5;
+      color: #333;
+      background-color: #f5f5f5;
+    }
+    
+    .loading {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-size: 18px;
+      color: #666;
+    }
+    
+    /* Container and layout */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+    
+    /* Header */
+    .header {
+      background: #2563eb;
+      color: white;
+      padding: 1rem 0;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .header h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+    
+    /* Navigation */
+    .nav {
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 0.75rem 0;
+    }
+    
+    .nav-tabs {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+    }
+    
+    .nav-tab {
+      padding: 0.5rem 1rem;
+      text-decoration: none;
+      color: #6b7280;
+      border-radius: 0.375rem;
+      transition: all 0.2s;
+    }
+    
+    .nav-tab:hover,
+    .nav-tab.active {
+      color: #2563eb;
+      background-color: #eff6ff;
+    }
+    
+    /* Main content */
+    .main {
+      padding: 2rem 0;
+      min-height: calc(100vh - 200px);
+    }
+    
+    /* Cards */
+    .card {
+      background: white;
+      border-radius: 0.5rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .card h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: #1f2937;
+    }
+    
+    /* Stats grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    
+    .stat-card {
+      background: white;
+      border-radius: 0.5rem;
+      padding: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+    
+    .stat-number {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #2563eb;
+    }
+    
+    .stat-label {
+      font-size: 0.875rem;
+      color: #6b7280;
+      margin-top: 0.25rem;
+    }
+    
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 0.375rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .btn-primary {
+      background-color: #2563eb;
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background-color: #1d4ed8;
+    }
+    
+    .btn-secondary {
+      background-color: #f3f4f6;
+      color: #374151;
+      border: 1px solid #d1d5db;
+    }
+    
+    .btn-secondary:hover {
+      background-color: #e5e7eb;
+    }
+    
+    .btn-danger {
+      background-color: #dc2626;
+      color: white;
+    }
+    
+    .btn-danger:hover {
+      background-color: #b91c1c;
+    }
+    
+    /* Form styles */
+    .form-group {
+      margin-bottom: 1rem;
+    }
+    
+    .form-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 0.25rem;
+    }
+    
+    .form-input {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.375rem;
+      font-size: 0.875rem;
+    }
+    
+    .form-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+    
+    /* Table styles for hierarchical CIDR display */
+    .cidr-table {
+      background: white;
+      border-radius: 0.5rem;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+    
+    .table th {
+      background-color: #f8fafc;
+      padding: 0.75rem 0.5rem;
+      text-align: left;
+      font-weight: 600;
+      color: #374151;
+      border-bottom: 2px solid #e5e7eb;
+      white-space: nowrap;
+    }
+    
+    .table td {
+      padding: 0.5rem;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: middle;
+    }
+    
+    .tree-row:hover {
+      background-color: #f8fafc;
+    }
+    
+    .tree-row.has-children.expanded {
+      background-color: #fefefe;
+    }
+    
+    /* Column sizing */
+    .subnet-col { width: 25%; }
+    .description-col { width: 20%; }
+    .vlan-col { width: 8%; }
+    .vrf-col { width: 8%; }
+    .master-col { width: 15%; }
+    .device-col { width: 8%; }
+    .customer-col { width: 8%; }
+    .location-col { width: 8%; }
+    .actions-col { width: 8%; }
+    
+    /* Subnet cell with hierarchy */
+    .subnet-cell {
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    }
+    
+    .subnet-content {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    
+    .tree-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1rem;
+      height: 1rem;
+      cursor: pointer;
+      color: #6b7280;
+      font-size: 0.75rem;
+      user-select: none;
+    }
+    
+    .tree-toggle:hover {
+      color: #374151;
+      background-color: #f3f4f6;
+      border-radius: 0.25rem;
+    }
+    
+    .tree-spacer {
+      width: 1rem;
+      height: 1rem;
+    }
+    
+    /* CIDR badges */
+    .cidr-badge {
+      display: inline-block;
+      padding: 0.125rem 0.375rem;
+      border-radius: 0.25rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    }
+    
+    .cidr-badge.cidr-root {
+      background-color: #fef3c7;
+      color: #92400e;
+      border: 1px solid #fbbf24;
+    }
+    
+    .cidr-badge.cidr-parent {
+      background-color: #dbeafe;
+      color: #1e40af;
+      border: 1px solid #60a5fa;
+    }
+    
+    .cidr-badge.cidr-leaf {
+      background-color: #d1fae5;
+      color: #065f46;
+      border: 1px solid #34d399;
+    }
+    
+    .cidr-name {
+      margin-left: 0.5rem;
+      color: #374151;
+      font-weight: 500;
+    }
+    
+    .parent-cidr {
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      color: #6b7280;
+      font-size: 0.75rem;
+      background-color: #f8fafc;
+      padding: 0.125rem 0.25rem;
+      border-radius: 0.25rem;
+    }
+    
+    /* Action buttons */
+    .action-buttons {
+      display: flex;
+      gap: 0.25rem;
+      justify-content: center;
+    }
+    
+    .btn-mini {
+      padding: 0.25rem;
+      font-size: 0.75rem;
+      min-width: 1.75rem;
+      height: 1.75rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .btn-mini:hover {
+      transform: scale(1.05);
+    }
+    
+    /* Table cell content styling */
+    .vlan-cell, .vrf-cell {
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 0.75rem;
+      color: #6b7280;
+    }
+    
+    .description-cell {
+      color: #374151;
+      font-style: italic;
+    }
+    
+    .device-cell, .customer-cell, .location-cell {
+      color: #6b7280;
+      font-size: 0.8rem;
+    }
+    
+    /* Legacy tree styles for backward compatibility */
+    .tree {
+      font-family: monospace;
+    }
+    
+    .tree-node {
+      margin: 0.25rem 0;
+      padding: 0.5rem;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    
+    .tree-node:hover {
+      background-color: #f3f4f6;
+    }
+    
+    .tree-node.selected {
+      background-color: #eff6ff;
+      border: 1px solid #2563eb;
+    }
+    
+    .tree-children {
+      margin-left: 1.5rem;
+      border-left: 1px dashed #d1d5db;
+      padding-left: 1rem;
+    }
+    
+    /* Modal styles */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    
+    .modal {
+      background: white;
+      border-radius: 0.5rem;
+      padding: 1.5rem;
+      max-width: 500px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    
+    .modal-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: #6b7280;
+    }
+    
+    .modal-close:hover {
+      color: #374151;
+    }
+    
+    /* Toast notifications */
+    .toast-container {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      z-index: 1100;
+    }
+    
+    .toast {
+      background: white;
+      border-radius: 0.5rem;
+      padding: 1rem;
+      margin-bottom: 0.5rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      border-left: 4px solid;
+      min-width: 300px;
+    }
+    
+    .toast.success {
+      border-left-color: #10b981;
+    }
+    
+    .toast.error {
+      border-left-color: #f56565;
+    }
+    
+    .toast.info {
+      border-left-color: #3b82f6;
+    }
+    
+    /* Responsive design */
+    @media (max-width: 768px) {
+      .container {
+        padding: 0 1rem;
+      }
+      
+      .nav-tabs {
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+      
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .modal {
+        margin: 1rem;
+        width: calc(100% - 2rem);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="loading">Loading MiniPAM...</div>
+  </div>
+  
+  <script src="/ui/vue.global.prod.js"></script>
+  <script src="/ui/app.js"></script>
+</body>
+</html>

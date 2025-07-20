@@ -7,7 +7,8 @@ from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from .auth import AuthenticationError, get_current_user
 from .config_loader import AppConfig
@@ -90,10 +91,11 @@ def create_app(
     if storage is None:
         from .storage import create_storage_backend
 
-        storage = create_storage_backend("memory")
+        storage = create_storage_backend(
+            config.storage.type, 
+            path=config.storage.path
+        )
     if validation_engine is None:
-        from .validation import CIDRValidationEngine
-
         validation_engine = CIDRValidationEngine()
 
     # Set up dependencies
@@ -129,13 +131,13 @@ def create_app(
     @app.get("/api/v1/health/live", response_model=HealthResponse)
     async def health_live():
         """Liveness probe endpoint."""
-        return HealthResponse(status="live", storage={}, auth={})
+        return HealthResponse(status="ok", storage={}, auth={})
 
     @app.get("/api/v1/health/ready", response_model=HealthResponse)
     async def health_ready(storage: StorageBackend = Depends(get_storage)):
         """Readiness probe endpoint."""
         try:
-            storage_health = await storage.health_check()
+            storage_health = storage.health_check()
 
             return HealthResponse(
                 status="ready", storage=storage_health, auth={"status": "ready"}
@@ -158,14 +160,49 @@ def create_app(
         """List CIDR blocks with optional filtering."""
         try:
             tag_list = [tag.strip() for tag in tags.split(",")] if tags else None
-            blocks = await storage.list(offset=offset, limit=limit, tags=tag_list)
-            total = await storage.count(tags=tag_list)
+            blocks = storage.list(offset=offset, limit=limit, tags=tag_list)
+            total = len(storage.list(tags=tag_list))
 
             return CIDRBlockListResponse(
                 blocks=blocks, total=total, offset=offset, limit=limit
             )
         except Exception as e:
             logger.error(f"Error listing CIDRs: {e}")
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+    @app.get("/api/v1/cidrs/tree")
+    async def get_cidr_tree(
+        storage: StorageBackend = Depends(get_storage),
+        current_user: Any = Depends(get_current_user),
+    ):
+        """Get hierarchical tree view of CIDR blocks."""
+        try:
+            # Get all blocks
+            all_blocks = storage.list()
+            
+            # Build tree structure
+            def build_tree(parent_cidr=None):
+                children = []
+                for block in all_blocks:
+                    if block.parent == parent_cidr:
+                        node = {
+                            "cidr": block.cidr,
+                            "name": block.name,
+                            "description": block.description,
+                            "parent": block.parent,
+                            "tags": block.tags,
+                            "created_at": block.created_at,
+                            "updated_at": block.updated_at,
+                            "children": build_tree(block.cidr)
+                        }
+                        children.append(node)
+                return children
+            
+            tree = build_tree()
+            return tree
+            
+        except Exception as e:
+            logger.error(f"Error getting CIDR tree: {e}")
             raise HTTPException(status_code=500, detail="Internal server error")
 
     @app.get("/api/v1/cidrs/{cidr_path:path}", response_model=CIDRBlock)
@@ -181,7 +218,7 @@ def create_app(
 
             cidr = urllib.parse.unquote(cidr_path)
 
-            block = await storage.get(cidr)
+            block = storage.get(cidr)
             if not block:
                 raise HTTPException(
                     status_code=404, detail=f"CIDR block {cidr} not found"
@@ -213,18 +250,21 @@ def create_app(
             )
 
             # Validate the block
-            validation_result = await validation_engine.validate_create(
+            validation_result = validation_engine.validate_create(
                 temp_block, storage
             )
             if not validation_result.is_valid:
                 error_messages = validation_result.errors
+                # Use 409 Conflict for overlap errors, 400 for other validation errors
+                status_code = 409 if any("overlap" in msg.lower() for msg in error_messages) else 400
                 raise HTTPException(
-                    status_code=400,
+                    status_code=status_code,
                     detail=f"Validation failed: {'; '.join(error_messages)}",
                 )
 
             # Create the block
-            block = await storage.create(cidr_data)
+            block = CIDRBlock(**cidr_data.model_dump())
+            storage.put(block)
             logger.info(f"Created CIDR block: {block.cidr}")
             return block
 
@@ -250,7 +290,7 @@ def create_app(
             cidr = urllib.parse.unquote(cidr_path)
 
             # Get existing block
-            existing_block = await storage.get(cidr)
+            existing_block = storage.get(cidr)
             if not existing_block:
                 raise HTTPException(
                     status_code=404, detail=f"CIDR block {cidr} not found"
@@ -261,18 +301,20 @@ def create_app(
             updated_block = existing_block.model_copy(update=update_data)
 
             # Validate the update
-            validation_result = await validation_engine.validate_update(
+            validation_result = validation_engine.validate_update(
                 cidr, updated_block, storage
             )
             if not validation_result.is_valid:
                 error_messages = validation_result.errors
+                # Use 409 Conflict for overlap errors, 400 for other validation errors
+                status_code = 409 if any("overlap" in msg.lower() for msg in error_messages) else 400
                 raise HTTPException(
-                    status_code=400,
+                    status_code=status_code,
                     detail=f"Validation failed: {'; '.join(error_messages)}",
                 )
 
             # Update the block
-            block = await storage.update(cidr, updates)
+            block = storage.update(cidr, updates)
             if not block:
                 raise HTTPException(
                     status_code=404, detail=f"CIDR block {cidr} not found"
@@ -300,11 +342,23 @@ def create_app(
 
             cidr = urllib.parse.unquote(cidr_path)
 
-            success = await storage.delete(cidr)
-            if not success:
+            # Check if block exists first
+            block = storage.get(cidr)
+            if not block:
                 raise HTTPException(
                     status_code=404, detail=f"CIDR block {cidr} not found"
                 )
+            
+            # Check if block has children (should not delete parents with children)
+            all_blocks = storage.list()
+            children = [b for b in all_blocks if b.parent == cidr]
+            if children:
+                raise HTTPException(
+                    status_code=409, 
+                    detail=f"Cannot delete CIDR {cidr} because it has {len(children)} child(ren)"
+                )
+            
+            storage.delete(cidr)
 
             logger.info(f"Deleted CIDR block: {cidr}")
 
@@ -313,6 +367,7 @@ def create_app(
         except Exception as e:
             logger.error(f"Error deleting CIDR {cidr_path}: {e}")
             raise HTTPException(status_code=500, detail="Internal server error")
+
 
     # Error handlers
     @app.exception_handler(AuthenticationError)
@@ -332,5 +387,50 @@ def create_app(
                 "message": "An unexpected error occurred",
             },
         )
+
+    # UI Routes
+    if config.ui.enabled:
+        import os
+        from pathlib import Path
+        
+        # Find the webui dist directory
+        webui_dist = None
+        current_dir = Path(__file__).parent
+        
+        # Look for webui/dist relative to the source directory
+        for parent in [current_dir, current_dir.parent, current_dir.parent.parent]:
+            potential_webui = parent / "webui" / "dist"
+            if potential_webui.exists():
+                webui_dist = potential_webui
+                break
+        
+        if webui_dist and webui_dist.exists():
+            # Mount static files
+            app.mount("/ui", StaticFiles(directory=str(webui_dist), html=True), name="ui")
+        else:
+            # Fallback: basic HTML page
+            @app.get("/ui/", response_class=HTMLResponse)
+            async def ui_index():
+                """Serve the UI index page."""
+                return HTMLResponse("""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>MiniPAM</title>
+                    <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1">
+                </head>
+                <body>
+                    <h1>MiniPAM</h1>
+                    <p>Web UI files not found. Please build the UI first.</p>
+                    <p>API documentation is available at <a href="/docs">/docs</a></p>
+                </body>
+                </html>
+                """)
+            
+            @app.get("/ui")
+            async def ui_redirect():
+                """Redirect /ui to /ui/"""
+                return RedirectResponse(url="/ui/", status_code=302)
 
     return app

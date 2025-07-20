@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.minipam.config import ConfigLoader, load_config, reset_configuration
+from src.minipam.config_loader import ConfigLoader, load_config, reset_configuration
 
 
 class TestConfigLoader:
@@ -270,7 +270,7 @@ class TestConfigModule:
         assert config.server.host == "0.0.0.0"
 
         # Should be able to get config after loading
-        from src.minipam.config import get_config
+        from src.minipam.config_loader import get_config
 
         config2 = get_config()
         assert config2.server.host == config.server.host

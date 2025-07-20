@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from ipaddress import AddressValueError, IPv4Network
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class CIDRBlock(BaseModel):
@@ -68,29 +68,6 @@ class CIDRBlock(BaseModel):
                 result.append(normalized)
         return result
 
-    @model_validator(mode="after")
-    def validate_parent_relationship(self) -> "CIDRBlock":
-        """Validate that parent relationship is logical."""
-        if not self.cidr or not self.parent:
-            return self
-
-        try:
-            # Parse networks (IPv4 only)
-            cidr_net = IPv4Network(self.cidr, strict=False)
-            parent_net = IPv4Network(self.parent, strict=False)
-
-            # Check if cidr is a subnet of parent
-            if not cidr_net.subnet_of(parent_net):
-                raise ValueError(
-                    f"CIDR {self.cidr} is not a subnet of parent {self.parent}"
-                )
-
-        except (AddressValueError, AttributeError):
-            raise ValueError(
-                f"Cannot validate parent relationship between {self.cidr} and {self.parent}"
-            )
-
-        return self
 
     def get_network(self) -> IPv4Network:
         """Get the network object for this CIDR block."""

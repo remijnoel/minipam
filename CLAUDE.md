@@ -51,6 +51,21 @@ docker run -p 8000:8000 -v minipam-data:/app/data minipam
 docker-compose -f docker-compose.azure.yml up -d
 ```
 
+### Building the Web UI
+
+```bash
+# Build the UI assets
+./build-ui.sh
+
+# OR using npm (if Node.js is installed)
+cd webui && npm run build
+```
+
+The Web UI is a Vue.js 3 single-page application located in the `webui/` directory:
+- `webui/src/app.js` - Main Vue application
+- `webui/public/index.html` - HTML template
+- `webui/dist/` - Built assets (served at `/ui/` endpoint)
+
 ### Testing
 
 ```bash

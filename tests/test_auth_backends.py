@@ -8,7 +8,10 @@ import pytest
 
 from src.minipam.auth import (
     APIKeyBackend,
+    AuthBackend,
     AuthenticationError,
+    InvalidCredentialsError,
+    InvalidTokenError,
     NoAuthBackend,
     OIDCBackend,
 )
@@ -83,7 +86,8 @@ class TestNoAuthBackend:
             finally:
                 os.environ.pop("ENABLE_NOAUTH", None)
 
-    def test_noauth_backend_authenticate_returns_default_user(self):
+    @pytest.mark.asyncio
+    async def test_noauth_backend_authenticate_returns_default_user(self):
         """Test that NoAuthBackend always returns default user."""
         os.environ["ENABLE_NOAUTH"] = "true"
 
@@ -98,7 +102,7 @@ class TestNoAuthBackend:
             ]
 
             for request in requests:
-                user = backend.authenticate(request)
+                user = await backend.authenticate(request)
                 assert isinstance(user, UserInfo)
                 assert user.id == "dev-user"
                 assert user.username == "developer"
@@ -135,37 +139,40 @@ class TestAPIKeyBackend:
         backend = APIKeyBackend(config)
         assert backend.valid_keys == []
 
-    def test_apikey_backend_authenticate_bearer_token_success(self):
+    @pytest.mark.asyncio
+    async def test_apikey_backend_authenticate_bearer_token_success(self):
         """Test APIKeyBackend authenticates valid Bearer token."""
         config = {"keys": ["valid-key-123"]}
         backend = APIKeyBackend(config)
 
         request = AuthRequest(headers={"authorization": "Bearer valid-key-123"})
-        user = backend.authenticate(request)
+        user = await backend.authenticate(request)
 
         assert isinstance(user, UserInfo)
-        assert user.id.startswith("apikey-")
-        assert user.username.startswith("api-user-")
+        assert user.id == "api-user"
+        assert user.username == "api-user"
         assert user.roles == ["user"]
         assert "cidr:read" in user.scopes
         assert "cidr:write" in user.scopes
 
-    def test_apikey_backend_authenticate_x_api_key_success(self):
+    @pytest.mark.asyncio
+    async def test_apikey_backend_authenticate_x_api_key_success(self):
         """Test APIKeyBackend authenticates valid X-API-Key header."""
         config = {"keys": ["valid-key-456"]}
         backend = APIKeyBackend(config)
 
         request = AuthRequest(headers={"x-api-key": "valid-key-456"})
-        user = backend.authenticate(request)
+        user = await backend.authenticate(request)
 
         assert isinstance(user, UserInfo)
-        assert user.id.startswith("apikey-")
-        assert user.username.startswith("api-user-")
+        assert user.id == "api-user"
+        assert user.username == "api-user"
         assert user.roles == ["user"]
         assert "cidr:read" in user.scopes
         assert "cidr:write" in user.scopes
 
-    def test_apikey_backend_authenticate_no_key_fails(self):
+    @pytest.mark.asyncio
+    async def test_apikey_backend_authenticate_no_key_fails(self):
         """Test APIKeyBackend fails when no API key provided."""
         config = {"keys": ["valid-key-789"]}
         backend = APIKeyBackend(config)
@@ -173,9 +180,10 @@ class TestAPIKeyBackend:
         request = AuthRequest()
 
         with pytest.raises(InvalidCredentialsError, match="No API key provided"):
-            backend.authenticate(request)
+            await backend.authenticate(request)
 
-    def test_apikey_backend_authenticate_invalid_key_fails(self):
+    @pytest.mark.asyncio
+    async def test_apikey_backend_authenticate_invalid_key_fails(self):
         """Test APIKeyBackend fails with invalid API key."""
         config = {"keys": ["valid-key-abc"]}
         backend = APIKeyBackend(config)
@@ -183,9 +191,10 @@ class TestAPIKeyBackend:
         request = AuthRequest(headers={"authorization": "Bearer invalid-key"})
 
         with pytest.raises(InvalidCredentialsError, match="Invalid API key"):
-            backend.authenticate(request)
+            await backend.authenticate(request)
 
-    def test_apikey_backend_authenticate_malformed_bearer_fails(self):
+    @pytest.mark.asyncio
+    async def test_apikey_backend_authenticate_malformed_bearer_fails(self):
         """Test APIKeyBackend fails with malformed Bearer token."""
         config = {"keys": ["valid-key-def"]}
         backend = APIKeyBackend(config)
@@ -193,31 +202,33 @@ class TestAPIKeyBackend:
         request = AuthRequest(headers={"authorization": "InvalidFormat valid-key-def"})
 
         with pytest.raises(InvalidCredentialsError, match="No API key provided"):
-            backend.authenticate(request)
+            await backend.authenticate(request)
 
-    def test_apikey_backend_authenticate_case_insensitive_headers(self):
+    @pytest.mark.asyncio
+    async def test_apikey_backend_authenticate_case_insensitive_headers(self):
         """Test APIKeyBackend handles case-insensitive headers."""
         config = {"keys": ["valid-key-ghi"]}
         backend = APIKeyBackend(config)
 
         # Test Authorization header
         request1 = AuthRequest(headers={"Authorization": "Bearer valid-key-ghi"})
-        user1 = backend.authenticate(request1)
+        user1 = await backend.authenticate(request1)
         assert isinstance(user1, UserInfo)
 
         # Test X-API-Key header
         request2 = AuthRequest(headers={"X-API-Key": "valid-key-ghi"})
-        user2 = backend.authenticate(request2)
+        user2 = await backend.authenticate(request2)
         assert isinstance(user2, UserInfo)
 
-    def test_apikey_backend_user_info_generation(self):
+    @pytest.mark.asyncio
+    async def test_apikey_backend_user_info_generation(self):
         """Test that APIKeyBackend generates consistent user info."""
         config = {"keys": ["test-key-123"]}
         backend = APIKeyBackend(config)
 
         request = AuthRequest(headers={"authorization": "Bearer test-key-123"})
-        user1 = backend.authenticate(request)
-        user2 = backend.authenticate(request)
+        user1 = await backend.authenticate(request)
+        user2 = await backend.authenticate(request)
 
         # Should generate same user info for same key
         assert user1.id == user2.id
@@ -268,7 +279,8 @@ class TestOIDCBackend:
         assert backend.client_secret == ""
         assert backend.jwks_cache_ttl == 600
 
-    def test_oidc_backend_authenticate_no_bearer_token_fails(self):
+    @pytest.mark.asyncio
+    async def test_oidc_backend_authenticate_no_bearer_token_fails(self):
         """Test OIDCBackend fails when no Bearer token provided."""
         config = {"issuer_url": "https://auth.example.com", "client_id": "test-client"}
         backend = OIDCBackend(config)
@@ -276,9 +288,10 @@ class TestOIDCBackend:
         request = AuthRequest()
 
         with pytest.raises(InvalidTokenError, match="No Bearer token provided"):
-            backend.authenticate(request)
+            await backend.authenticate(request)
 
-    def test_oidc_backend_authenticate_malformed_bearer_fails(self):
+    @pytest.mark.asyncio
+    async def test_oidc_backend_authenticate_malformed_bearer_fails(self):
         """Test OIDCBackend fails with malformed Bearer token."""
         config = {"issuer_url": "https://auth.example.com", "client_id": "test-client"}
         backend = OIDCBackend(config)
@@ -286,45 +299,74 @@ class TestOIDCBackend:
         request = AuthRequest(headers={"authorization": "InvalidFormat token"})
 
         with pytest.raises(InvalidTokenError, match="No Bearer token provided"):
-            backend.authenticate(request)
+            await backend.authenticate(request)
 
-    @patch("src.minipam.auth.oidc.jwt")
-    def test_oidc_backend_authenticate_jwt_expired_fails(self, mock_jwt):
+    @patch("src.minipam.auth.httpx")
+    @patch("src.minipam.auth.jwt")
+    @pytest.mark.asyncio
+    async def test_oidc_backend_authenticate_jwt_expired_fails(self, mock_jwt, mock_httpx):
         """Test OIDCBackend fails with expired JWT token."""
         from jwt import ExpiredSignatureError
 
         config = {"issuer_url": "https://auth.example.com", "client_id": "test-client"}
         backend = OIDCBackend(config)
 
+        # Mock JWKS response
+        jwks_data = {
+            "keys": [{"kid": "test-key-id", "kty": "RSA", "n": "mock-n", "e": "AQAB"}]
+        }
+        mock_response = MagicMock()
+        mock_response.json.return_value = jwks_data
+        mock_response.raise_for_status.return_value = None
+        mock_client = MagicMock()
+        mock_client.get.return_value = mock_response
+        mock_httpx.Client.return_value.__enter__.return_value = mock_client
+
         # Mock JWT to raise ExpiredSignatureError
         mock_jwt.get_unverified_header.return_value = {"kid": "test-key-id"}
+        mock_jwt.PyJWK.return_value.key = MagicMock()
         mock_jwt.decode.side_effect = ExpiredSignatureError("Token expired")
 
         request = AuthRequest(headers={"authorization": "Bearer expired-token"})
 
         with pytest.raises(InvalidTokenError, match="Token has expired"):
-            backend.authenticate(request)
+            await backend.authenticate(request)
 
-    @patch("src.minipam.auth.oidc.jwt")
-    def test_oidc_backend_authenticate_invalid_token_fails(self, mock_jwt):
+    @patch("src.minipam.auth.httpx")
+    @patch("src.minipam.auth.jwt")
+    @pytest.mark.asyncio
+    async def test_oidc_backend_authenticate_invalid_token_fails(self, mock_jwt, mock_httpx):
         """Test OIDCBackend fails with invalid JWT token."""
         from jwt import InvalidTokenError as JWTInvalidTokenError
 
         config = {"issuer_url": "https://auth.example.com", "client_id": "test-client"}
         backend = OIDCBackend(config)
 
+        # Mock JWKS response
+        jwks_data = {
+            "keys": [{"kid": "test-key-id", "kty": "RSA", "n": "mock-n", "e": "AQAB"}]
+        }
+        mock_response = MagicMock()
+        mock_response.json.return_value = jwks_data
+        mock_response.raise_for_status.return_value = None
+        mock_client = MagicMock()
+        mock_client.get.return_value = mock_response
+        mock_httpx.Client.return_value.__enter__.return_value = mock_client
+
         # Mock JWT to raise InvalidTokenError
         mock_jwt.get_unverified_header.return_value = {"kid": "test-key-id"}
+        mock_jwt.PyJWK.return_value.key = MagicMock()
         mock_jwt.decode.side_effect = JWTInvalidTokenError("Invalid token")
 
         request = AuthRequest(headers={"authorization": "Bearer invalid-token"})
 
         with pytest.raises(InvalidTokenError, match="Invalid token"):
-            backend.authenticate(request)
+            await backend.authenticate(request)
 
-    @patch("src.minipam.auth.oidc.jwt")
-    @patch("src.minipam.auth.oidc.urlopen")
-    def test_oidc_backend_authenticate_success(self, mock_urlopen, mock_jwt):
+    @patch("src.minipam.auth.httpx")
+    @patch("src.minipam.auth.jwt")
+    @pytest.mark.asyncio
+    async def test_oidc_backend_authenticate_success(self, mock_jwt, mock_httpx):
         """Test OIDCBackend successful authentication."""
         config = {"issuer_url": "https://auth.example.com", "client_id": "test-client"}
         backend = OIDCBackend(config)
@@ -334,12 +376,15 @@ class TestOIDCBackend:
             "keys": [{"kid": "test-key-id", "kty": "RSA", "n": "mock-n", "e": "AQAB"}]
         }
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(jwks_data).encode("utf-8")
-        mock_urlopen.return_value.__enter__.return_value = mock_response
+        mock_response.json.return_value = jwks_data
+        mock_response.raise_for_status.return_value = None
+        mock_client = MagicMock()
+        mock_client.get.return_value = mock_response
+        mock_httpx.Client.return_value.__enter__.return_value = mock_client
 
         # Mock JWT operations
         mock_jwt.get_unverified_header.return_value = {"kid": "test-key-id"}
-        mock_jwt.algorithms.RSAAlgorithm.from_jwk.return_value = MagicMock()
+        mock_jwt.PyJWK.return_value.key = MagicMock()
         mock_jwt.decode.return_value = {
             "sub": "user-123",
             "preferred_username": "testuser",
@@ -350,7 +395,7 @@ class TestOIDCBackend:
         }
 
         request = AuthRequest(headers={"authorization": "Bearer valid-token"})
-        user = backend.authenticate(request)
+        user = await backend.authenticate(request)
 
         assert isinstance(user, UserInfo)
         assert user.id == "user-123"
@@ -360,8 +405,9 @@ class TestOIDCBackend:
         assert "cidr:write" in user.scopes
         assert "cidr:delete" in user.scopes
 
-    @patch("src.minipam.auth.oidc.jwt")
-    def test_oidc_backend_validate_jwt_invalid_header_fails(self, mock_jwt):
+    @patch("src.minipam.auth.jwt")
+    @pytest.mark.asyncio
+    async def test_oidc_backend_validate_jwt_invalid_header_fails(self, mock_jwt):
         """Test OIDCBackend fails with invalid JWT header."""
         config = {"issuer_url": "https://auth.example.com", "client_id": "test-client"}
         backend = OIDCBackend(config)
@@ -372,10 +418,11 @@ class TestOIDCBackend:
         request = AuthRequest(headers={"authorization": "Bearer invalid-header-token"})
 
         with pytest.raises(InvalidTokenError, match="Invalid token header"):
-            backend.authenticate(request)
+            await backend.authenticate(request)
 
-    @patch("src.minipam.auth.oidc.urlopen")
-    def test_oidc_backend_get_jwks_success(self, mock_urlopen):
+    @patch("src.minipam.auth.httpx")
+    @pytest.mark.asyncio
+    async def test_oidc_backend_get_jwks_success(self, mock_httpx):
         """Test OIDCBackend successfully fetches JWKS."""
         config = {"issuer_url": "https://auth.example.com", "client_id": "test-client"}
         backend = OIDCBackend(config)
@@ -385,16 +432,20 @@ class TestOIDCBackend:
             "keys": [{"kid": "test-key-id", "kty": "RSA", "n": "mock-n", "e": "AQAB"}]
         }
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(jwks_data).encode("utf-8")
-        mock_urlopen.return_value.__enter__.return_value = mock_response
+        mock_response.json.return_value = jwks_data
+        mock_response.raise_for_status.return_value = None
+        mock_client = MagicMock()
+        mock_client.get.return_value = mock_response
+        mock_httpx.Client.return_value.__enter__.return_value = mock_client
 
-        jwks = backend._get_jwks()
+        jwks = await backend._get_jwks("https://auth.example.com")
 
         assert jwks == jwks_data
         assert backend._jwks_cache == jwks_data
 
-    @patch("src.minipam.auth.oidc.urlopen")
-    def test_oidc_backend_get_jwks_caching(self, mock_urlopen):
+    @patch("src.minipam.auth.httpx")
+    @pytest.mark.asyncio
+    async def test_oidc_backend_get_jwks_caching(self, mock_httpx):
         """Test OIDCBackend caches JWKS for configured TTL."""
         config = {
             "issuer_url": "https://auth.example.com",
@@ -408,29 +459,33 @@ class TestOIDCBackend:
             "keys": [{"kid": "test-key-id", "kty": "RSA", "n": "mock-n", "e": "AQAB"}]
         }
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(jwks_data).encode("utf-8")
-        mock_urlopen.return_value.__enter__.return_value = mock_response
+        mock_response.json.return_value = jwks_data
+        mock_response.raise_for_status.return_value = None
+        mock_client = MagicMock()
+        mock_client.get.return_value = mock_response
+        mock_httpx.Client.return_value.__enter__.return_value = mock_client
 
         # First call should fetch from server
-        jwks1 = backend._get_jwks()
-        assert mock_urlopen.call_count == 1
+        jwks1 = await backend._get_jwks("https://auth.example.com")
+        assert mock_client.get.call_count == 1
 
         # Second call should use cache
-        jwks2 = backend._get_jwks()
-        assert mock_urlopen.call_count == 1  # No additional call
+        jwks2 = await backend._get_jwks("https://auth.example.com")
+        assert mock_client.get.call_count == 1  # No additional call
         assert jwks1 == jwks2
 
-    @patch("src.minipam.auth.oidc.urlopen")
-    def test_oidc_backend_get_jwks_fetch_failure(self, mock_urlopen):
+    @patch("src.minipam.auth.httpx")
+    @pytest.mark.asyncio
+    async def test_oidc_backend_get_jwks_fetch_failure(self, mock_httpx):
         """Test OIDCBackend handles JWKS fetch failure."""
         config = {"issuer_url": "https://auth.example.com", "client_id": "test-client"}
         backend = OIDCBackend(config)
 
         # Mock network failure
-        mock_urlopen.side_effect = Exception("Network error")
+        mock_httpx.Client.return_value.__enter__.side_effect = Exception("Network error")
 
         with pytest.raises(AuthenticationError, match="Failed to fetch JWKS"):
-            backend._get_jwks()
+            await backend._get_jwks("https://auth.example.com")
 
     def test_oidc_backend_map_roles_to_scopes(self):
         """Test OIDCBackend maps roles to scopes correctly."""
@@ -467,10 +522,11 @@ class TestOIDCBackend:
         assert "cidr:write" not in unknown_scopes
         assert "cidr:delete" not in unknown_scopes
 
-    @patch("src.minipam.auth.oidc.jwt")
-    @patch("src.minipam.auth.oidc.urlopen")
-    def test_oidc_backend_authenticate_missing_user_info_uses_defaults(
-        self, mock_urlopen, mock_jwt
+    @patch("src.minipam.auth.httpx")
+    @patch("src.minipam.auth.jwt")
+    @pytest.mark.asyncio
+    async def test_oidc_backend_authenticate_missing_user_info_uses_defaults(
+        self, mock_jwt, mock_httpx
     ):
         """Test OIDCBackend handles missing user info gracefully."""
         config = {"issuer_url": "https://auth.example.com", "client_id": "test-client"}
@@ -481,12 +537,15 @@ class TestOIDCBackend:
             "keys": [{"kid": "test-key-id", "kty": "RSA", "n": "mock-n", "e": "AQAB"}]
         }
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(jwks_data).encode("utf-8")
-        mock_urlopen.return_value.__enter__.return_value = mock_response
+        mock_response.json.return_value = jwks_data
+        mock_response.raise_for_status.return_value = None
+        mock_client = MagicMock()
+        mock_client.get.return_value = mock_response
+        mock_httpx.Client.return_value.__enter__.return_value = mock_client
 
         # Mock JWT operations with minimal payload
         mock_jwt.get_unverified_header.return_value = {"kid": "test-key-id"}
-        mock_jwt.algorithms.RSAAlgorithm.from_jwk.return_value = MagicMock()
+        mock_jwt.PyJWK.return_value.key = MagicMock()
         mock_jwt.decode.return_value = {
             "sub": "user-456",
             "iss": "https://auth.example.com",
@@ -494,7 +553,7 @@ class TestOIDCBackend:
         }
 
         request = AuthRequest(headers={"authorization": "Bearer minimal-token"})
-        user = backend.authenticate(request)
+        user = await backend.authenticate(request)
 
         assert isinstance(user, UserInfo)
         assert user.id == "user-456"

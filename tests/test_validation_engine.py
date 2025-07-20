@@ -189,7 +189,9 @@ class TestCIDRValidationEngine:
             ),
         ]
         mock_storage = Mock()
-        mock_storage.get.return_value = None
+        mock_storage.get.side_effect = lambda cidr: next(
+            (block for block in existing_blocks if block.cidr == cidr), None
+        )
         mock_storage.list.return_value = existing_blocks
 
         new_block = CIDRBlock(
@@ -212,7 +214,9 @@ class TestCIDRValidationEngine:
             ),
         ]
         mock_storage = Mock()
-        mock_storage.get.return_value = None
+        mock_storage.get.side_effect = lambda cidr: next(
+            (block for block in existing_blocks if block.cidr == cidr), None
+        )
         mock_storage.list.return_value = existing_blocks
 
         # New block overlaps with sibling
@@ -247,7 +251,7 @@ class TestCIDRValidationEngine:
         mock_storage = Mock()
         mock_storage.list.return_value = all_blocks
 
-        children = engine.list_children("10.0.0.0/16", mock_storage, depth=1)
+        children = engine.list_children("10.0.0.0/16", mock_storage, depth=2)
 
         # Should return direct children and grandchildren
         assert len(children) == 3
@@ -277,8 +281,8 @@ class TestCIDRValidationEngine:
         mock_storage = Mock()
         mock_storage.list.return_value = all_blocks
 
-        # Test with depth limit of 2
-        children = engine.list_children("10.0.0.0/16", mock_storage, depth=2)
+        # Test with depth limit of 1
+        children = engine.list_children("10.0.0.0/16", mock_storage, depth=1)
 
         # Should return child and grandchild, but not great-grandchild
         child_cidrs = [child.cidr for child in children]
@@ -334,6 +338,9 @@ class TestCIDRValidationEngine:
         ]
         mock_storage = Mock()
         mock_storage.list.return_value = all_blocks
+        mock_storage.get.side_effect = lambda cidr: next(
+            (block for block in all_blocks if block.cidr == cidr), None
+        )
 
         tree = engine.get_tree(mock_storage, root="10.0.0.0/16")
 

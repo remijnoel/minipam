@@ -50,7 +50,7 @@ class TestApplicationStartup:
     def test_application_loads_config_successfully(self, test_config):
         """Test that the application can load configuration from file."""
         # This will fail until we implement config loading
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         config = load_config(test_config)
         assert config.server.host == "127.0.0.1"
@@ -62,7 +62,7 @@ class TestApplicationStartup:
         """Test that the application creates a FastAPI app."""
         # This will fail until we implement the app factory
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -76,7 +76,7 @@ class TestHealthEndpoints:
     def test_liveness_endpoint_returns_ok(self, test_config):
         """Test liveness endpoint returns 200 OK."""
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -89,7 +89,7 @@ class TestHealthEndpoints:
     def test_readiness_endpoint_returns_ready(self, test_config):
         """Test readiness endpoint returns ready status."""
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -108,7 +108,7 @@ class TestCIDRManagement:
     def test_create_cidr_block_successfully(self, test_config):
         """Test creating a new CIDR block via API."""
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -132,7 +132,7 @@ class TestCIDRManagement:
     def test_list_cidr_blocks_empty_initially(self, test_config):
         """Test listing CIDR blocks returns empty list initially."""
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -140,12 +140,14 @@ class TestCIDRManagement:
 
         response = client.get("/api/v1/cidrs")
         assert response.status_code == 200
-        assert response.json() == []
+        data = response.json()
+        assert data["blocks"] == []
+        assert data["total"] == 0
 
     def test_get_cidr_tree_view(self, test_config):
         """Test getting hierarchical tree view of CIDRs."""
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -158,7 +160,7 @@ class TestCIDRManagement:
     def test_create_overlapping_cidr_returns_409(self, test_config):
         """Test that creating overlapping CIDR blocks returns 409 conflict."""
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -182,7 +184,7 @@ class TestCIDRManagement:
     def test_create_child_cidr_with_parent(self, test_config):
         """Test creating a child CIDR with proper parent relationship."""
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -220,7 +222,7 @@ class TestCIDRManagement:
     def test_delete_cidr_block(self, test_config):
         """Test deleting a CIDR block."""
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -247,7 +249,7 @@ class TestCIDRManagement:
     def test_update_cidr_block(self, test_config):
         """Test updating a CIDR block."""
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -309,7 +311,7 @@ ui:
 
         try:
             from src.minipam.api import create_app
-            from src.minipam.config import load_config
+            from src.minipam.config_loader import load_config
 
             load_config(str(config_file))
             app = create_app()
@@ -347,7 +349,7 @@ ui:
         config_file.write_text(config_content)
 
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(str(config_file))
         app = create_app()
@@ -376,7 +378,7 @@ class TestStorageIntegration:
     def test_memory_storage_persistence_during_session(self, test_config):
         """Test that memory storage persists data during a session."""
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -425,7 +427,7 @@ ui:
 
         try:
             from src.minipam.api import create_app
-            from src.minipam.config import load_config
+            from src.minipam.config_loader import load_config
 
             load_config(str(config_file))
             app = create_app()
@@ -455,7 +457,7 @@ class TestWebUIIntegration:
     def test_ui_index_page_accessible(self, test_config):
         """Test that UI index page is accessible."""
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -468,7 +470,7 @@ class TestWebUIIntegration:
     def test_ui_serves_static_assets(self, test_config):
         """Test that UI serves static assets correctly."""
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -485,7 +487,7 @@ class TestCompleteCIDRWorkflow:
     def test_complete_cidr_hierarchy_workflow(self, test_config):
         """Test complete workflow: create hierarchy, validate, modify, delete."""
         from src.minipam.api import create_app
-        from src.minipam.config import load_config
+        from src.minipam.config_loader import load_config
 
         load_config(test_config)
         app = create_app()
@@ -546,8 +548,8 @@ class TestCompleteCIDRWorkflow:
         # Step 5: Verify list view
         list_response = client.get("/api/v1/cidrs")
         assert list_response.status_code == 200
-        cidrs = list_response.json()
-        assert len(cidrs) == 4
+        cidrs_data = list_response.json()
+        assert len(cidrs_data["blocks"]) == 4
 
         # Step 6: Try to create conflicting CIDR (should fail)
         conflict_cidr = {
@@ -587,6 +589,6 @@ class TestCompleteCIDRWorkflow:
         # Step 11: Verify final state
         final_response = client.get("/api/v1/cidrs")
         assert final_response.status_code == 200
-        final_cidrs = final_response.json()
-        assert len(final_cidrs) == 1
-        assert final_cidrs[0]["cidr"] == "10.0.0.0/8"
+        final_cidrs_data = final_response.json()
+        assert len(final_cidrs_data["blocks"]) == 1
+        assert final_cidrs_data["blocks"][0]["cidr"] == "10.0.0.0/8"

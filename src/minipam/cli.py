@@ -184,7 +184,8 @@ def add(
             return
 
         # Create the block
-        block = await storage.create(cidr_data)
+        block = CIDRBlock(**cidr_data.model_dump())
+        storage.put(block)
         click.echo(f"Created CIDR block: {block.cidr} ({block.name})")
 
     asyncio.run(_add())
@@ -236,6 +237,11 @@ def list(ctx, tags: Optional[str]):
         click.echo(tabulate(rows, headers=headers, tablefmt="grid"))
 
     asyncio.run(_list())
+
+
+def main():
+    """Entry point for console scripts."""
+    cli()
 
 
 if __name__ == "__main__":

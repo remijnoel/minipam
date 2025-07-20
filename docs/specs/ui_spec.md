@@ -17,10 +17,12 @@ flows.
 
 ### Functional Requirements
 - Login screen (auth backend-agnostic).  
-- Dashboard showing: total CIDRs, v4/v6 split, recent activity.  
-- **CIDR Tree View:**  
+- Dashboard showing: total CIDRs, v4/v6 split, recent activity (reserved for future features).  
+- **CIDR View (Primary Interface):**  
   - Collapsible hierarchy, lazy-load children, search/filter by tag.  
-  - Right-click or kebab menu for CRUD actions.  
+  - Right-click or kebab menu for CRUD actions.
+  - **Add Child CIDR button** for each subnet to create child networks.
+  - Edit and Delete actions for each CIDR block.
 - Form wizard for creating/updating CIDR with inline validation.  
 - Toast notifications for successes/errors.
 

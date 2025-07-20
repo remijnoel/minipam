@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TreeNode Component Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .tree-node { 
+            border: 1px solid #ddd; 
+            padding: 8px; 
+            margin: 4px 0; 
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+        }
+        .tree-toggle { 
+            margin-right: 8px; 
+            font-weight: bold; 
+            color: #666;
+            cursor: pointer;
+        }
+        .tree-children { 
+            margin-left: 2rem; 
+            padding-left: 1rem; 
+            border-left: 2px solid #e5e7eb; 
+            background: #fafafa; 
+        }
+        .btn { 
+            padding: 4px 8px; 
+            margin: 0 2px; 
+            border: 1px solid #ccc; 
+            background: white; 
+            cursor: pointer; 
+            font-size: 12px;
+        }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+    </style>
+</head>
+<body>
+    <h1>TreeNode Component Test</h1>
+    <p>Testing TreeNode component with sample hierarchical data.</p>
+    
+    <div id="app">
+        <h3>Sample Tree Data:</h3>
+        <pre>{{ JSON.stringify(sampleTree, null, 2) }}</pre>
+        
+        <h3>Rendered Tree:</h3>
+        <div class="tree">
+            <tree-node 
+                v-for="node in sampleTree" 
+                :key="node.cidr"
+                :node="node" 
+                :level="0"
+                @select="onSelect"
+                @edit="onEdit"
+                @delete="onDelete"
+                @add-child="onAddChild"
+            />
+        </div>
+        
+        <h3>Events Log:</h3>
+        <div style="background: #f0f0f0; padding: 10px; max-height: 200px; overflow-y: auto;">
+            <div v-for="(event, i) in events" :key="i">{{ event }}</div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script>
+        const { createApp, ref } = Vue;
+
+        // TreeNode component (simplified version)
+        const TreeNode = {
+            props: ['node', 'level'],
+            emits: ['select', 'edit', 'delete', 'add-child'],
+            data() {
+                return {
+                    expanded: this.level < 2 // Auto-expand first 2 levels
+                };
+            },
+            mounted() {
+                console.log(`TreeNode mounted: ${this.node.cidr}, level: ${this.level}, expanded: ${this.expanded}, hasChildren: ${this.hasChildren}`);
+            },
+            computed: {
+                hasChildren() {
+                    const has = this.node.children && this.node.children.length > 0;
+                    console.log(`hasChildren for ${this.node.cidr}:`, has, 'children:', this.node.children);
+                    return has;
+                },
+                indent() {
+                    return `${this.level * 1.5}rem`;
+                }
+            },
+            methods: {
+                toggle() {
+                    if (this.hasChildren) {
+                        this.expanded = !this.expanded;
+                        console.log(`Toggle ${this.node.cidr}: expanded = ${this.expanded}, children count = ${this.node.children.length}`);
+                    } else {
+                        console.log(`Toggle ${this.node.cidr}: no children`);
+                    }
+                },
+                handleClick() {
+                    this.$emit('select', this.node);
+                },
+                handleEdit() {
+                    this.$emit('edit', this.node);
+                },
+                handleDelete() {
+                    this.$emit('delete', this.node);
+                },
+                handleAddChild() {
+                    this.$emit('add-child', this.node);
+                }
+            },
+            template: `
+                <div>
+                    <div 
+                        class="tree-node" 
+                        :style="{ marginLeft: indent }"
+                        @click="handleClick"
+                    >
+                        <span 
+                            class="tree-toggle" 
+                            @click.stop="toggle"
+                        >
+                            {{ hasChildren ? (expanded ? '▼' : '▶') : ' ' }}
+                        </span>
+                        <span class="tree-content">
+                            <strong>{{ node.cidr }}</strong>
+                            <span style="color: #666; margin-left: 0.5rem;">{{ node.name }}</span>
+                            <span style="color: #999; font-size: 0.7rem; margin-left: 0.5rem;">[L{{ level }} {{ expanded ? 'expanded' : 'collapsed' }} {{ hasChildren ? node.children.length + ' children' : 'no children' }}]</span>
+                        </span>
+                        <span style="margin-left: auto; display: flex; gap: 0.25rem;">
+                            <button @click.stop="handleAddChild" class="btn btn-primary">+ Child</button>
+                            <button @click.stop="handleEdit" class="btn btn-secondary">Edit</button>
+                            <button @click.stop="handleDelete" class="btn btn-danger">Delete</button>
+                        </span>
+                    </div>
+                    
+                    <div v-if="expanded && hasChildren" class="tree-children">
+                        <tree-node 
+                            v-for="child in node.children" 
+                            :key="child.cidr"
+                            :node="child" 
+                            :level="level + 1"
+                            @select="$emit('select', $event)"
+                            @edit="$emit('edit', $event)"
+                            @delete="$emit('delete', $event)"
+                            @add-child="$emit('add-child', $event)"
+                        />
+                    </div>
+                </div>
+            `
+        };
+
+        // Main app
+        createApp({
+            components: {
+                TreeNode
+            },
+            data() {
+                return {
+                    events: [],
+                    sampleTree: [
+                        {
+                            cidr: "10.0.0.0/16",
+                            name: "Corporate Network",
+                            description: "Main corporate network",
+                            parent: null,
+                            tags: ["production"],
+                            children: [
+                                {
+                                    cidr: "10.0.1.0/24",
+                                    name: "Development",
+                                    description: "Development subnet",
+                                    parent: "10.0.0.0/16",
+                                    tags: ["development"],
+                                    children: [
+                                        {
+                                            cidr: "10.0.1.128/25",
+                                            name: "Dev Team A",
+                                            description: "Team A development subnet",
+                                            parent: "10.0.1.0/24",
+                                            tags: ["development", "team-a"],
+                                            children: []
+                                        }
+                                    ]
+                                },
+                                {
+                                    cidr: "10.0.2.0/24",
+                                    name: "Production",
+                                    description: "Production subnet",
+                                    parent: "10.0.0.0/16",
+                                    tags: ["production"],
+                                    children: []
+                                }
+                            ]
+                        }
+                    ]
+                }
+            },
+            methods: {
+                logEvent(type, node) {
+                    const timestamp = new Date().toLocaleTimeString();
+                    this.events.unshift(`${timestamp}: ${type} - ${node.cidr}`);
+                    if (this.events.length > 10) this.events.pop();
+                },
+                onSelect(node) {
+                    this.logEvent('SELECT', node);
+                },
+                onEdit(node) {
+                    this.logEvent('EDIT', node);
+                },
+                onDelete(node) {
+                    this.logEvent('DELETE', node);
+                },
+                onAddChild(node) {
+                    this.logEvent('ADD_CHILD', node);
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

@@ -1,360 +1,476 @@
 """
-Storage backends for MiniPAM.
+Storage backends for MiniPAM CIDR blocks.
 
-This module provides different storage backends for persisting CIDR blocks.
+This module provides pluggable storage backends for persisting CIDR block data.
 """
 
 import fcntl
 import json
+import logging
 import os
-import tempfile
+import threading
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
-from .models import CIDRBlock, CIDRBlockCreate, CIDRBlockUpdate
+from .models import CIDRBlock
+
+logger = logging.getLogger(__name__)
+
+
+class CIDRNotFoundError(Exception):
+    """Exception raised when a CIDR block is not found."""
+    pass
+
+
+class StorageError(Exception):
+    """General storage operation error."""
+    pass
 
 
 class StorageBackend(ABC):
     """Abstract base class for storage backends."""
-
+    
     @abstractmethod
-    async def create(self, block_data: CIDRBlockCreate) -> CIDRBlock:
-        """Create a new CIDR block."""
-        pass
-
-    @abstractmethod
-    async def get(self, cidr: str) -> Optional[CIDRBlock]:
+    def get(self, cidr: str) -> Optional[CIDRBlock]:
         """Get a CIDR block by its CIDR notation."""
         pass
-
+    
     @abstractmethod
-    async def list(
-        self, offset: int = 0, limit: int = 100, tags: Optional[List[str]] = None
-    ) -> List[CIDRBlock]:
+    def put(self, block: CIDRBlock) -> None:
+        """Store a CIDR block."""
+        pass
+    
+    @abstractmethod
+    def delete(self, cidr: str) -> None:
+        """Delete a CIDR block. Raises CIDRNotFoundError if not found."""
+        pass
+    
+    @abstractmethod
+    def list(self, **kwargs) -> List[CIDRBlock]:
         """List CIDR blocks with optional filtering."""
         pass
-
+    
     @abstractmethod
-    async def update(self, cidr: str, updates: CIDRBlockUpdate) -> Optional[CIDRBlock]:
-        """Update a CIDR block."""
+    def stats(self) -> Dict[str, int]:
+        """Get storage statistics."""
+        pass
+    
+    @abstractmethod
+    def update(self, cidr: str, updates) -> Optional[CIDRBlock]:
+        """Update a CIDR block. Returns updated block or None if not found."""
         pass
 
-    @abstractmethod
-    async def delete(self, cidr: str) -> bool:
-        """Delete a CIDR block."""
-        pass
 
-    @abstractmethod
-    async def count(self, tags: Optional[List[str]] = None) -> int:
-        """Count total number of CIDR blocks."""
-        pass
-
-    @abstractmethod
-    async def health_check(self) -> Dict[str, Any]:
-        """Perform health check on storage backend."""
-        pass
+# Alias for backwards compatibility
+CIDRStorage = StorageBackend
 
 
 class MemoryStorage(StorageBackend):
     """In-memory storage backend for development and testing."""
-
+    
     def __init__(self):
-        self._blocks: Dict[str, CIDRBlock] = {}
-
-    async def create(self, block_data: CIDRBlockCreate) -> CIDRBlock:
-        """Create a new CIDR block."""
-        if block_data.cidr in self._blocks:
-            raise ValueError(f"CIDR block {block_data.cidr} already exists")
-
-        block = CIDRBlock(
-            cidr=block_data.cidr,
-            name=block_data.name,
-            description=block_data.description,
-            parent=block_data.parent,
-            tags=block_data.tags,
-            created_at=datetime.now(timezone.utc),
-            updated_at=None,
-        )
-
-        self._blocks[block.cidr] = block
-        return block
-
-    async def get(self, cidr: str) -> Optional[CIDRBlock]:
+        self._data: Dict[str, CIDRBlock] = {}
+        self._lock = threading.RLock()
+    
+    def get(self, cidr: str) -> Optional[CIDRBlock]:
         """Get a CIDR block by its CIDR notation."""
-        return self._blocks.get(cidr)
-
-    async def list(
-        self, offset: int = 0, limit: int = 100, tags: Optional[List[str]] = None
-    ) -> List[CIDRBlock]:
+        with self._lock:
+            return self._data.get(cidr)
+    
+    def put(self, block: CIDRBlock) -> None:
+        """Store a CIDR block."""
+        with self._lock:
+            self._data[block.cidr] = block
+    
+    def delete(self, cidr: str) -> None:
+        """Delete a CIDR block. Raises CIDRNotFoundError if not found."""
+        with self._lock:
+            if cidr in self._data:
+                del self._data[cidr]
+            else:
+                raise CIDRNotFoundError(f"CIDR {cidr} not found")
+    
+    def list(self, **kwargs) -> List[CIDRBlock]:
         """List CIDR blocks with optional filtering."""
-        blocks = list(self._blocks.values())
-
-        # Filter by tags if provided
-        if tags:
-            filtered_blocks = []
-            for block in blocks:
-                if any(tag in block.tags for tag in tags):
-                    filtered_blocks.append(block)
-            blocks = filtered_blocks
-
-        # Apply pagination
-        return blocks[offset : offset + limit]
-
-    async def update(self, cidr: str, updates: CIDRBlockUpdate) -> Optional[CIDRBlock]:
-        """Update a CIDR block."""
-        if cidr not in self._blocks:
-            return None
-
-        block = self._blocks[cidr]
-        update_data = updates.model_dump(exclude_unset=True)
-
-        # Update fields
-        for field, value in update_data.items():
-            setattr(block, field, value)
-
-        block.updated_at = datetime.now(timezone.utc)
-        return block
-
-    async def delete(self, cidr: str) -> bool:
-        """Delete a CIDR block."""
-        if cidr in self._blocks:
-            del self._blocks[cidr]
-            return True
+        with self._lock:
+            blocks = list(self._data.values())
+            
+            # Apply parent filtering if specified
+            parent = kwargs.get("parent")
+            recursive = kwargs.get("recursive", False)
+            
+            if parent:
+                if recursive:
+                    # Include all descendants of the parent
+                    filtered_blocks = []
+                    for block in blocks:
+                        if self._is_descendant_of(block, parent, blocks):
+                            filtered_blocks.append(block)
+                    blocks = filtered_blocks
+                else:
+                    # Include only direct children
+                    blocks = [block for block in blocks if block.parent == parent]
+            
+            # Sort by CIDR for consistent ordering
+            blocks.sort(key=lambda x: x.cidr)
+            
+            return blocks
+    
+    def stats(self) -> Dict[str, int]:
+        """Get storage statistics."""
+        with self._lock:
+            return {
+                "total_blocks": len(self._data),
+                "storage_type": "memory"
+            }
+    
+    def health_check(self) -> Dict[str, str]:
+        """Check health of memory storage."""
+        return {"status": "healthy", "backend": "memory"}
+    
+    def clear(self) -> None:
+        """Clear all data from storage."""
+        with self._lock:
+            self._data.clear()
+    
+    def update(self, cidr: str, updates) -> Optional[CIDRBlock]:
+        """Update a CIDR block. Returns updated block or None if not found."""
+        with self._lock:
+            if cidr not in self._data:
+                return None
+            
+            existing_block = self._data[cidr]
+            update_data = updates.model_dump(exclude_unset=True)
+            updated_block = existing_block.model_copy(update=update_data)
+            self._data[cidr] = updated_block
+            return updated_block
+    
+    def _is_descendant_of(self, block: CIDRBlock, ancestor_cidr: str, all_blocks: List[CIDRBlock]) -> bool:
+        """Check if a block is a descendant of another CIDR."""
+        if block.cidr == ancestor_cidr:
+            return False  # Self is not a descendant
+            
+        current_parent = block.parent
+        while current_parent:
+            if current_parent == ancestor_cidr:
+                return True
+            
+            # Find the parent block and continue up the chain
+            parent_block = None
+            for b in all_blocks:
+                if b.cidr == current_parent:
+                    parent_block = b
+                    break
+            
+            if parent_block:
+                current_parent = parent_block.parent
+            else:
+                break
+                
         return False
-
-    async def count(self, tags: Optional[List[str]] = None) -> int:
-        """Count total number of CIDR blocks."""
-        if not tags:
-            return len(self._blocks)
-
-        count = 0
-        for block in self._blocks.values():
-            if any(tag in block.tags for tag in tags):
-                count += 1
-        return count
-
-    async def health_check(self) -> Dict[str, Any]:
-        """Perform health check on storage backend."""
-        return {
-            "type": "memory",
-            "status": "healthy",
-            "total_blocks": len(self._blocks),
-        }
 
 
 class FileStorage(StorageBackend):
-    """File-based storage backend with atomic writes and locking."""
-
+    """File-based storage backend with atomic writes and file locking."""
+    
     def __init__(self, storage_path: str):
         self.storage_path = Path(storage_path)
-        self.data_file = self.storage_path / "cidr_blocks.json"
-        self.lock_file = self.storage_path / "cidr_blocks.lock"
-
-        # Create storage directory if it doesn't exist
+        self.data_file = self.storage_path / "cidrs.json"
+        self._lock = threading.RLock()
+        self._data: Optional[Dict[str, CIDRBlock]] = None
+        self._file_mtime: Optional[float] = None
+        
+        # Ensure storage directory exists
         self.storage_path.mkdir(parents=True, exist_ok=True)
-
-        # Initialize data file if it doesn't exist
+        
+        # Load existing data
+        self._load_data()
+        
+        # Create empty file if it doesn't exist
         if not self.data_file.exists():
-            self._write_data({})
-
-    def _acquire_lock(self):
-        """Acquire file lock for atomic operations."""
-        self.lock_file.touch()
-        self._lock_fd = open(self.lock_file, "w")
-        fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_EX)
-
-    def _release_lock(self):
-        """Release file lock."""
-        if hasattr(self, "_lock_fd"):
-            fcntl.flock(self._lock_fd.fileno(), fcntl.LOCK_UN)
-            self._lock_fd.close()
-            delattr(self, "_lock_fd")
-
-    def _read_data(self) -> Dict[str, Dict[str, Any]]:
-        """Read data from file with error handling."""
-        try:
-            with open(self.data_file, "r") as f:
-                data = json.load(f)
-                return data
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {}
-
-    def _write_data(self, data: Dict[str, Dict[str, Any]]) -> None:
-        """Write data to file atomically."""
-        # Write to temporary file first
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=self.storage_path,
-            prefix="cidr_blocks_",
-            suffix=".tmp",
-            delete=False,
-        ) as tmp_file:
-            json.dump(data, tmp_file, indent=2, default=str)
-            tmp_file.flush()
-            os.fsync(tmp_file.fileno())
-            tmp_path = tmp_file.name
-
-        # Atomic move
-        os.rename(tmp_path, self.data_file)
-
-    def _serialize_block(self, block: CIDRBlock) -> Dict[str, Any]:
-        """Serialize CIDR block for JSON storage."""
-        return block.model_dump()
-
-    def _deserialize_block(self, data: Dict[str, Any]) -> CIDRBlock:
-        """Deserialize CIDR block from JSON data."""
-        return CIDRBlock(**data)
-
-    async def create(self, block_data: CIDRBlockCreate) -> CIDRBlock:
-        """Create a new CIDR block."""
-        self._acquire_lock()
-        try:
-            data = self._read_data()
-
-            if block_data.cidr in data:
-                raise ValueError(f"CIDR block {block_data.cidr} already exists")
-
-            block = CIDRBlock(
-                cidr=block_data.cidr,
-                name=block_data.name,
-                description=block_data.description,
-                parent=block_data.parent,
-                tags=block_data.tags,
-                created_at=datetime.now(timezone.utc),
-                updated_at=None,
-            )
-
-            data[block.cidr] = self._serialize_block(block)
-            self._write_data(data)
-
-            return block
-        finally:
-            self._release_lock()
-
-    async def get(self, cidr: str) -> Optional[CIDRBlock]:
+            self._data = {}
+            self._save_data()
+    
+    def _load_data(self) -> None:
+        """Load data from file."""
+        with self._lock:
+            if self.data_file.exists():
+                try:
+                    # Track file modification time
+                    self._file_mtime = self.data_file.stat().st_mtime
+                    
+                    with open(self.data_file, 'r') as f:
+                        # Use file locking to prevent concurrent access
+                        fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                        try:
+                            data = json.load(f)
+                            self._data = {
+                                cidr: CIDRBlock(**block_data)
+                                for cidr, block_data in data.items()
+                            }
+                        finally:
+                            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Corrupted storage file {self.data_file}: {e}")
+                    raise StorageError(f"Corrupted storage file: {e}")
+                except PermissionError as e:
+                    logger.error(f"Permission denied accessing storage file {self.data_file}: {e}")
+                    raise StorageError(f"Permission denied: {e}")
+                except FileNotFoundError as e:
+                    logger.warning(f"Storage file not found {self.data_file}: {e}")
+                    self._data = {}
+                    self._file_mtime = None
+                except OSError as e:
+                    logger.warning(f"Could not load storage file {self.data_file}: {e}")
+                    self._data = {}
+                    self._file_mtime = None
+            else:
+                self._data = {}
+                self._file_mtime = None
+    
+    def _save_data(self) -> None:
+        """Save data to file with atomic writes."""
+        with self._lock:
+            if self._data is None:
+                return
+                
+            # Create temporary file for atomic write
+            temp_path = self.data_file.with_suffix('.tmp')
+            
+            try:
+                with open(temp_path, 'w') as f:
+                    # Use file locking to prevent concurrent access
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                    try:
+                        data = {
+                            cidr: block.model_dump()
+                            for cidr, block in self._data.items()
+                        }
+                        json.dump(data, f, indent=2, default=str)
+                        f.flush()
+                        os.fsync(f.fileno())
+                    finally:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                
+                # Atomic move
+                temp_path.replace(self.data_file)
+                
+                # Update modification time tracking
+                self._file_mtime = self.data_file.stat().st_mtime
+                
+            except OSError as e:
+                logger.error(f"Failed to save storage file {self.data_file}: {e}")
+                if temp_path.exists():
+                    temp_path.unlink()
+                raise StorageError(f"Failed to save storage file: {e}")
+    
+    def get(self, cidr: str) -> Optional[CIDRBlock]:
         """Get a CIDR block by its CIDR notation."""
-        data = self._read_data()
-        block_data = data.get(cidr)
-
-        if block_data:
-            return self._deserialize_block(block_data)
-        return None
-
-    async def list(
-        self, offset: int = 0, limit: int = 100, tags: Optional[List[str]] = None
-    ) -> List[CIDRBlock]:
+        with self._lock:
+            try:
+                # Check if we need to reload data
+                should_reload = (self._data is None or 
+                               (self.data_file.exists() and 
+                                self._file_mtime is not None and
+                                self.data_file.stat().st_mtime != self._file_mtime))
+                
+                if should_reload:
+                    self._load_data()
+                    
+                if self._data is None:
+                    return None
+                return self._data.get(cidr)
+            except Exception as e:
+                if isinstance(e, StorageError):
+                    raise
+                logger.error(f"Error getting CIDR {cidr}: {e}")
+                raise StorageError(f"Failed to get CIDR: {e}")
+    
+    def put(self, block: CIDRBlock) -> None:
+        """Store a CIDR block."""
+        with self._lock:
+            if self._data is None:
+                self._load_data()
+            if self._data is None:
+                self._data = {}
+            
+            # Store original value for rollback
+            original_value = self._data.get(block.cidr)
+            
+            # Temporarily store the new block
+            self._data[block.cidr] = block
+            
+            try:
+                # Try to save to disk
+                self._save_data()
+            except Exception:
+                # Rollback on failure
+                if original_value is None:
+                    # Block didn't exist before, remove it
+                    self._data.pop(block.cidr, None)
+                else:
+                    # Restore original value
+                    self._data[block.cidr] = original_value
+                raise
+    
+    def delete(self, cidr: str) -> None:
+        """Delete a CIDR block. Raises CIDRNotFoundError if not found."""
+        with self._lock:
+            if self._data is None:
+                self._load_data()
+            if self._data is None:
+                self._data = {}
+            
+            if cidr in self._data:
+                del self._data[cidr]
+                self._save_data()
+            else:
+                raise CIDRNotFoundError(f"CIDR {cidr} not found")
+    
+    def list(self, **kwargs) -> List[CIDRBlock]:
         """List CIDR blocks with optional filtering."""
-        data = self._read_data()
-        blocks = []
-
-        for block_data in data.values():
-            block = self._deserialize_block(block_data)
-
-            # Filter by tags if provided
-            if tags and not any(tag in block.tags for tag in tags):
-                continue
-
-            blocks.append(block)
-
-        # Sort by creation time (newest first)
-        blocks.sort(key=lambda x: x.created_at, reverse=True)
-
-        # Apply pagination
-        return blocks[offset : offset + limit]
-
-    async def update(self, cidr: str, updates: CIDRBlockUpdate) -> Optional[CIDRBlock]:
-        """Update a CIDR block."""
-        self._acquire_lock()
-        try:
-            data = self._read_data()
-
-            if cidr not in data:
-                return None
-
-            block = self._deserialize_block(data[cidr])
-            update_data = updates.model_dump(exclude_unset=True)
-
-            # Update fields
-            for field, value in update_data.items():
-                setattr(block, field, value)
-
-            block.updated_at = datetime.now(timezone.utc)
-
-            data[cidr] = self._serialize_block(block)
-            self._write_data(data)
-
-            return block
-        finally:
-            self._release_lock()
-
-    async def delete(self, cidr: str) -> bool:
-        """Delete a CIDR block."""
-        self._acquire_lock()
-        try:
-            data = self._read_data()
-
-            if cidr in data:
-                del data[cidr]
-                self._write_data(data)
-                return True
-            return False
-        finally:
-            self._release_lock()
-
-    async def count(self, tags: Optional[List[str]] = None) -> int:
-        """Count total number of CIDR blocks."""
-        data = self._read_data()
-
-        if not tags:
-            return len(data)
-
-        count = 0
-        for block_data in data.values():
-            block = self._deserialize_block(block_data)
-            if any(tag in block.tags for tag in tags):
-                count += 1
-        return count
-
-    async def health_check(self) -> Dict[str, Any]:
-        """Perform health check on storage backend."""
-        try:
-            # Test read access
-            data = self._read_data()
-
-            # Test write access
-            test_file = self.storage_path / "health_check.tmp"
-            test_file.write_text("test")
-            test_file.unlink()
-
+        with self._lock:
+            if self._data is None:
+                self._load_data()
+            if self._data is None:
+                return []
+            
+            blocks = list(self._data.values())
+            
+            # Apply parent filtering if specified
+            parent = kwargs.get("parent")
+            recursive = kwargs.get("recursive", False)
+            
+            if parent:
+                if recursive:
+                    # Include all descendants of the parent
+                    filtered_blocks = []
+                    for block in blocks:
+                        if self._is_descendant_of(block, parent, blocks):
+                            filtered_blocks.append(block)
+                    blocks = filtered_blocks
+                else:
+                    # Include only direct children
+                    blocks = [block for block in blocks if block.parent == parent]
+            
+            # Sort by CIDR for consistent ordering
+            blocks.sort(key=lambda x: x.cidr)
+            
+            return blocks
+    
+    def stats(self) -> Dict[str, int]:
+        """Get storage statistics."""
+        with self._lock:
+            if self._data is None:
+                self._load_data()
+            if self._data is None:
+                return {
+                    "total_blocks": 0,
+                    "file_size_bytes": 0,
+                    "storage_type": "file",
+                    "storage_path": str(self.data_file)
+                }
+            
+            file_size = self.data_file.stat().st_size if self.data_file.exists() else 0
+            
             return {
-                "type": "file",
-                "status": "healthy",
-                "path": str(self.storage_path),
-                "total_blocks": len(data),
-                "readable": True,
-                "writable": True,
+                "total_blocks": len(self._data),
+                "file_size_bytes": file_size,
+                "storage_type": "file",
+                "storage_path": str(self.data_file)
             }
+    
+    def health_check(self) -> Dict[str, str]:
+        """Check health of file storage."""
+        try:
+            # Check if directory exists and is writable
+            self.storage_path.mkdir(parents=True, exist_ok=True)
+            # Try to read data to verify file access
+            with self._lock:
+                if self._data is None:
+                    self._load_data()
+            return {"status": "healthy", "backend": "file", "path": str(self.storage_path)}
         except Exception as e:
-            return {
-                "type": "file",
-                "status": "unhealthy",
-                "path": str(self.storage_path),
-                "error": str(e),
-                "readable": False,
-                "writable": False,
-            }
+            return {"status": "unhealthy", "backend": "file", "error": str(e)}
+    
+    def _is_descendant_of(self, block: CIDRBlock, ancestor_cidr: str, all_blocks: List[CIDRBlock]) -> bool:
+        """Check if a block is a descendant of another CIDR."""
+        if block.cidr == ancestor_cidr:
+            return False  # Self is not a descendant
+            
+        current_parent = block.parent
+        while current_parent:
+            if current_parent == ancestor_cidr:
+                return True
+            
+            # Find the parent block and continue up the chain
+            parent_block = None
+            for b in all_blocks:
+                if b.cidr == current_parent:
+                    parent_block = b
+                    break
+            
+            if parent_block:
+                current_parent = parent_block.parent
+            else:
+                break
+                
+        return False
+    
+    def _read_data(self) -> None:
+        """Read data from file - alias for _load_data."""
+        self._load_data()
+    
+    def _write_data(self) -> None:
+        """Write data to file - alias for _save_data."""
+        self._save_data()
+    
+    def clear(self) -> None:
+        """Clear all data from storage."""
+        with self._lock:
+            self._data = {}
+            if self.data_file.exists():
+                self.data_file.write_text('{}')
+    
+    def _invalidate_cache(self) -> None:
+        """Invalidate the data cache to force reload."""
+        self._data = None
+    
+    def update(self, cidr: str, updates) -> Optional[CIDRBlock]:
+        """Update a CIDR block. Returns updated block or None if not found."""
+        with self._lock:
+            if self._data is None:
+                self._load_data()
+            if self._data is None:
+                self._data = {}
+            
+            if cidr not in self._data:
+                return None
+            
+            existing_block = self._data[cidr]
+            update_data = updates.model_dump(exclude_unset=True)
+            updated_block = existing_block.model_copy(update=update_data)
+            
+            # Store original for rollback
+            original_block = self._data[cidr]
+            self._data[cidr] = updated_block
+            
+            try:
+                self._save_data()
+                return updated_block
+            except Exception:
+                # Rollback on failure
+                self._data[cidr] = original_block
+                raise
 
 
 def create_storage_backend(storage_type: str, **kwargs) -> StorageBackend:
-    """Factory function to create storage backends."""
+    """Create a storage backend based on configuration."""
     if storage_type == "memory":
         return MemoryStorage()
     elif storage_type == "file":
-        storage_path = kwargs.get("path")
-        if not storage_path:
-            raise ValueError("File storage requires 'path' parameter")
-        return FileStorage(storage_path)
+        path = kwargs.get("path", "./data")
+        return FileStorage(path)
     else:
         raise ValueError(f"Unknown storage type: {storage_type}")

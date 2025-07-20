@@ -1,0 +1,93 @@
+{
+  "10.0.0.0/16": {
+    "cidr": "10.0.0.0/16",
+    "name": "Parent Network",
+    "description": "Test parent",
+    "parent": null,
+    "tags": [],
+    "created_at": "2025-07-19 01:31:10.171843+00:00",
+    "updated_at": null
+  },
+  "10.0.1.0/24": {
+    "cidr": "10.0.1.0/24",
+    "name": "Child Network",
+    "description": "Test child",
+    "parent": "10.0.0.0/16",
+    "tags": [],
+    "created_at": "2025-07-19 01:31:10.171987+00:00",
+    "updated_at": null
+  },
+  "10.0.2.0/24": {
+    "cidr": "10.0.2.0/24",
+    "name": "Production",
+    "description": "Production subnet",
+    "parent": "10.0.0.0/16",
+    "tags": [
+      "production"
+    ],
+    "created_at": "2025-07-19 01:56:49.919893+00:00",
+    "updated_at": null
+  },
+  "10.0.1.128/25": {
+    "cidr": "10.0.1.128/25",
+    "name": "Dev Team A",
+    "description": "Team A development subnet",
+    "parent": "10.0.1.0/24",
+    "tags": [
+      "development",
+      "team-a"
+    ],
+    "created_at": "2025-07-19 01:56:49.921301+00:00",
+    "updated_at": null
+  },
+  "203.0.113.0/24": {
+    "cidr": "203.0.113.0/24",
+    "name": "Test Network",
+    "description": "Test network",
+    "parent": null,
+    "tags": [
+      "test"
+    ],
+    "created_at": "2025-07-19 01:59:30.554232+00:00",
+    "updated_at": null
+  },
+  "203.0.113.128/25": {
+    "cidr": "203.0.113.128/25",
+    "name": "Test Subnet",
+    "description": "Test subnet",
+    "parent": "203.0.113.0/24",
+    "tags": [
+      "test"
+    ],
+    "created_at": "2025-07-19 01:59:30.555919+00:00",
+    "updated_at": null
+  },
+  "192.168.0.0/16": {
+    "cidr": "192.168.0.0/16",
+    "name": "Office Network",
+    "description": "Main office network infrastructure",
+    "parent": null,
+    "tags": [
+      "vlan:300",
+      "vrf:office",
+      "location:hq",
+      "customer:internal"
+    ],
+    "created_at": "2025-07-19 23:55:21.337884+00:00",
+    "updated_at": null
+  },
+  "192.168.1.0/24": {
+    "cidr": "192.168.1.0/24",
+    "name": "IT Department",
+    "description": "IT department subnet",
+    "parent": "192.168.0.0/16",
+    "tags": [
+      "vlan:301",
+      "vrf:office",
+      "device:sw-core-01",
+      "location:hq-floor3"
+    ],
+    "created_at": "2025-07-19 23:55:33.993742+00:00",
+    "updated_at": null
+  }
+}

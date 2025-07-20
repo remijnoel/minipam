@@ -14,6 +14,7 @@ WORKDIR /app
 
 # Copy requirements first for better caching
 COPY requirements.txt ./
+COPY requirements-dev.txt ./
 COPY pyproject.toml ./
 
 # Install Python dependencies

@@ -8,7 +8,7 @@ Environment variables always take precedence over configuration files.
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -46,12 +46,27 @@ class StorageConfig(BaseModel):
         return v
 
 
+class APIKeyConfig(BaseModel):
+    """API Key configuration."""
+    
+    keys: List[str] = Field(default_factory=list, description="List of valid API keys")
+
+
+class OIDCConfig(BaseModel):
+    """OIDC configuration."""
+    
+    issuer_url: Optional[str] = Field(None, description="OIDC issuer URL")
+    client_id: Optional[str] = Field(None, description="OIDC client ID")
+    client_secret: Optional[str] = Field(None, description="OIDC client secret")
+    jwks_cache_ttl: int = Field(default=300, description="JWKS cache TTL in seconds")
+
+
 class AuthConfig(BaseModel):
     """Authentication configuration."""
 
     backend: str = Field(default="none", description="Authentication backend")
-    apikey: Optional[Dict[str, Any]] = Field(None, description="API key configuration")
-    oidc: Optional[Dict[str, Any]] = Field(None, description="OIDC configuration")
+    apikey: Optional[APIKeyConfig] = Field(None, description="API key configuration")
+    oidc: Optional[OIDCConfig] = Field(None, description="OIDC configuration")
 
     @field_validator("backend")
     @classmethod
@@ -117,6 +132,10 @@ class ConfigLoader:
         if self._config is None:
             return self.load_config()
         return self._config
+    
+    def load(self, config_path: Optional[str] = None) -> AppConfig:
+        """Load configuration - alias for load_config."""
+        return self.load_config(config_path)
 
     def reset_config(self) -> None:
         """Reset configuration - useful for testing."""
@@ -125,8 +144,8 @@ class ConfigLoader:
     def _get_default_config(self) -> Dict[str, Any]:
         """Get default configuration."""
         return {
-            "server": {"host": "127.0.0.1", "port": 8000, "debug": False},
-            "storage": {"type": "memory", "path": None},
+            "server": {"host": "0.0.0.0", "port": 8000, "debug": False},
+            "storage": {"type": "file", "path": "./data"},
             "auth": {"backend": "none", "apikey": None, "oidc": None},
             "ui": {"enabled": True, "path": "/ui"},
         }
@@ -194,6 +213,8 @@ class ConfigLoader:
             f"{self._env_prefix}AUTH_OIDC_CLIENT_SECRET"
         ):
             oidc_config["client_secret"] = oidc_client_secret
+        if oidc_jwks_cache_ttl := os.getenv(f"{self._env_prefix}AUTH_OIDC_JWKS_CACHE_TTL"):
+            oidc_config["jwks_cache_ttl"] = int(oidc_jwks_cache_ttl)
         if oidc_config:
             auth_config["oidc"] = oidc_config
 

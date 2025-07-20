@@ -1,218 +1,310 @@
 """
-Authentication module for MiniPAM.
+Authentication backends and utilities for MiniPAM.
+
+This module provides pluggable authentication backends following the specification
+in docs/specs/auth_backend_spec.md.
 """
 
+import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+import os
+import time
+from abc import ABC, abstractmethod
+from typing import Any, Dict
 
 import httpx
 import jwt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jwt.exceptions import ExpiredSignatureError, InvalidTokenError as JWTInvalidTokenError
+from fastapi import HTTPException, Request, status
 
 from .config_loader import get_config
+from .models import AuthRequest, UserInfo
 
 logger = logging.getLogger(__name__)
-
-# Security scheme for API key authentication
-security = HTTPBearer(auto_error=False)
 
 
 class AuthenticationError(Exception):
     """Authentication error exception."""
+    
+    def __init__(self, message: str, status_code: int = 401):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
 
+
+class InvalidCredentialsError(AuthenticationError):
+    """Invalid credentials error - subclass of AuthenticationError."""
     pass
 
 
-class AuthBackend:
-    """Base authentication backend."""
+class InvalidTokenError(AuthenticationError):
+    """Invalid token error - subclass of AuthenticationError.""" 
+    pass
 
-    async def authenticate(
-        self, credentials: Optional[HTTPAuthorizationCredentials]
-    ) -> Optional[Any]:
-        """Authenticate user credentials."""
-        raise NotImplementedError
+
+class AuthBackend(ABC):
+    """Abstract authentication backend interface."""
+    
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        
+    @abstractmethod
+    async def authenticate(self, request: AuthRequest) -> UserInfo:
+        """Authenticate a user from request data."""
+        pass
+    
+    async def refresh(self, token: str) -> UserInfo:
+        """Refresh a user token (optional)."""
+        raise NotImplementedError("Refresh not supported by this backend")
+        
+    async def revoke(self, token: str) -> None:
+        """Revoke a user token (optional)."""
+        raise NotImplementedError("Revoke not supported by this backend")
 
 
 class NoAuthBackend(AuthBackend):
-    """No authentication backend - allows all requests."""
-
-    async def authenticate(
-        self, credentials: Optional[HTTPAuthorizationCredentials]
-    ) -> Optional[Any]:
-        """Always allow access."""
-        return {"username": "anonymous", "authenticated": False}
+    """No authentication backend for development."""
+    
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        
+        # Check if NoAuth is explicitly enabled via environment variable
+        enable_noauth = os.environ.get("ENABLE_NOAUTH", "").lower()
+        if enable_noauth not in ["true", "1", "yes"]:
+            raise AuthenticationError("NoAuth backend is disabled")
+    
+    async def authenticate(self, request: AuthRequest) -> UserInfo:
+        """Always return a default user."""
+        return UserInfo(
+            id="dev-user",
+            username="developer",
+            roles=["admin"],
+            scopes=["cidr:read", "cidr:write", "cidr:delete"]
+        )
 
 
 class APIKeyBackend(AuthBackend):
     """API key authentication backend."""
-
-    def __init__(self, api_keys: list[str]):
-        self.api_keys = set(api_keys)
-
-    async def authenticate(
-        self, credentials: Optional[HTTPAuthorizationCredentials]
-    ) -> Optional[Any]:
-        """Authenticate using API key."""
-        if not credentials:
-            raise AuthenticationError("Missing authentication credentials")
-
-        if credentials.credentials not in self.api_keys:
-            raise AuthenticationError("Invalid API key")
-
-        return {"username": "api_key_user", "authenticated": True, "method": "api_key"}
+    
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        self.valid_keys = config.get("keys", [])
+    
+    async def authenticate(self, request: AuthRequest) -> UserInfo:
+        """Authenticate using API key from Authorization header."""
+        # Try Authorization header first (case-insensitive)
+        auth_header = ""
+        api_key = None
+        
+        # Check for Authorization header (case-insensitive)
+        for key, value in request.headers.items():
+            if key.lower() == "authorization":
+                auth_header = value
+                break
+        
+        if auth_header.startswith("Bearer "):
+            api_key = auth_header[7:]  # Remove "Bearer " prefix
+        else:
+            # Try X-API-Key header (case-insensitive)
+            for key, value in request.headers.items():
+                if key.lower() == "x-api-key":
+                    api_key = value
+                    break
+        
+        if not api_key:
+            raise InvalidCredentialsError("No API key provided")
+        
+        # Check if API key is valid
+        if api_key not in self.valid_keys:
+            raise InvalidCredentialsError("Invalid API key")
+            
+        return UserInfo(
+            id="api-user",
+            username="api-user", 
+            roles=["user"],
+            scopes=["cidr:read", "cidr:write"]
+        )
 
 
 class OIDCBackend(AuthBackend):
-    """OIDC authentication backend."""
-
-    def __init__(
-        self, issuer_url: str, client_id: str, client_secret: Optional[str] = None
-    ):
-        self.issuer_url = issuer_url.rstrip("/")
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self._jwks_cache: Optional[Dict] = None
-        self._jwks_cache_time: Optional[datetime] = None
-
-    async def authenticate(
-        self, credentials: Optional[HTTPAuthorizationCredentials]
-    ) -> Optional[Any]:
+    """OIDC/OAuth2 authentication backend."""
+    
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        self.issuer_url = config.get("issuer_url", "")
+        self.client_id = config.get("client_id", "")
+        self.client_secret = config.get("client_secret", "")
+        self.jwks_cache_ttl = config.get("jwks_cache_ttl", 600)
+        self._jwks_cache = {}
+        self._jwks_cache_time = 0
+        
+        # Validate required configuration
+        if not self.issuer_url or not self.client_id:
+            raise AuthenticationError("OIDC backend requires issuer_url and client_id")
+        
+    async def authenticate(self, request: AuthRequest) -> UserInfo:
         """Authenticate using OIDC JWT token."""
-        if not credentials:
-            raise AuthenticationError("Missing authentication credentials")
-
+        # Validate configuration
+        if not self.issuer_url or not self.client_id:
+            raise AuthenticationError("OIDC backend requires issuer_url and client_id")
+            
+        # Extract token from Authorization header
+        auth_header = request.headers.get("authorization", "")
+        if not auth_header.startswith("Bearer "):
+            raise InvalidTokenError("No Bearer token provided")
+            
+        token = auth_header[7:]  # Remove "Bearer " prefix
+        
         try:
-            # Decode and verify JWT token
-            token = credentials.credentials
-
-            # Get JWKS for verification
-            await self._get_jwks()  # Validate JWKS endpoint is reachable
-
-            # For simplicity, we'll skip full JWT verification in this implementation
-            # In production, you would verify the signature using the JWKS
-
-            # Decode without verification for now (NOT SECURE - for demo only)
-            payload = jwt.decode(token, options={"verify_signature": False})
-
-            # Basic validation
-            if payload.get("iss") != self.issuer_url:
-                raise AuthenticationError("Invalid token issuer")
-
-            if payload.get("aud") != self.client_id:
-                raise AuthenticationError("Invalid token audience")
-
-            # Check expiration
-            exp = payload.get("exp")
-            if exp and datetime.fromtimestamp(exp, timezone.utc) < datetime.now(
-                timezone.utc
-            ):
-                raise AuthenticationError("Token expired")
-
-            return {
-                "username": payload.get(
-                    "preferred_username", payload.get("sub", "unknown")
-                ),
-                "authenticated": True,
-                "method": "oidc",
-                "claims": payload,
-            }
-
-        except jwt.InvalidTokenError as e:
-            raise AuthenticationError(f"Invalid token: {str(e)}")
+            # Get JWKS and validate token
+            jwks = await self._get_jwks(self.issuer_url)
+            decoded_token = self._validate_jwt(token, jwks, self.issuer_url, self.client_id)
+            
+            # Extract user info from token
+            user_id = decoded_token.get("sub", "unknown")
+            username = decoded_token.get("preferred_username") or decoded_token.get("email") or user_id
+            roles = decoded_token.get("groups", decoded_token.get("roles", ["user"]))
+            
+            # Map roles to scopes
+            scopes = self._map_roles_to_scopes(roles)
+            
+            return UserInfo(
+                id=user_id,
+                username=username,
+                roles=roles,
+                scopes=scopes
+            )
+            
+        except ExpiredSignatureError:
+            raise InvalidTokenError("Token has expired")
+        except JWTInvalidTokenError as e:
+            raise InvalidTokenError(f"Invalid token: {str(e)}")
         except Exception as e:
-            logger.error(f"OIDC authentication error: {e}")
-            raise AuthenticationError("Authentication failed")
-
-    async def _get_jwks(self) -> Dict:
-        """Get JWKS from the OIDC provider."""
-        # Simple caching (5 minutes)
-        now = datetime.now(timezone.utc)
-        if (
-            self._jwks_cache
-            and self._jwks_cache_time
-            and (now - self._jwks_cache_time).seconds < 300
-        ):
+            logger.error(f"OIDC authentication error: {str(e)}")
+            raise InvalidTokenError("Invalid token header")
+    
+    async def _get_jwks(self, issuer_url: str) -> Dict[str, Any]:
+        """Get JWKS from OIDC provider with caching."""
+        current_time = time.time()
+        
+        # Check cache
+        if (current_time - self._jwks_cache_time) < self.jwks_cache_ttl and self._jwks_cache:
             return self._jwks_cache
-
+            
+        # Fetch JWKS
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"{self.issuer_url}/.well-known/jwks.json")
+            jwks_url = f"{issuer_url.rstrip('/')}/.well-known/jwks.json"
+            with httpx.Client() as client:
+                response = client.get(jwks_url, timeout=10.0)
                 response.raise_for_status()
-
-                self._jwks_cache = response.json()
-                self._jwks_cache_time = now
-
-                return self._jwks_cache
-
+                
+                jwks = response.json()
+                self._jwks_cache = jwks
+                self._jwks_cache_time = current_time
+                
+                return jwks
+            
         except Exception as e:
-            logger.error(f"Failed to fetch JWKS: {e}")
-            raise AuthenticationError("Unable to verify token")
+            logger.error(f"Failed to fetch JWKS from {jwks_url}: {str(e)}")
+            raise AuthenticationError("Failed to fetch JWKS")
+    
+    def _validate_jwt(self, token: str, jwks: Dict[str, Any], issuer_url: str, client_id: str) -> Dict[str, Any]:
+        """Validate JWT token using JWKS."""
+        # Decode header to get key ID
+        unverified_header = jwt.get_unverified_header(token)
+        kid = unverified_header.get("kid")
+        
+        if not kid:
+            raise JWTInvalidTokenError("Token missing key ID")
+            
+        # Find matching key in JWKS
+        signing_key = None
+        for key in jwks.get("keys", []):
+            if key.get("kid") == kid:
+                signing_key = jwt.PyJWK(key).key
+                break
+                
+        if not signing_key:
+            raise JWTInvalidTokenError("No matching key found in JWKS")
+            
+        # Verify and decode token
+        decoded_token = jwt.decode(
+            token,
+            signing_key,
+            algorithms=["RS256"],
+            audience=client_id,
+            issuer=issuer_url
+        )
+        
+        return decoded_token
+    
+    def _map_roles_to_scopes(self, roles: list) -> list:
+        """Map roles to scopes."""
+        scopes = ["cidr:read"]  # All roles get read access
+        
+        # Admin roles get full access
+        admin_roles = ["admin", "editor", "ipam-admin"]
+        if any(role in admin_roles for role in roles):
+            scopes.extend(["cidr:write", "cidr:delete"])
+        
+        return scopes
 
 
-# Global auth backend instance
-_auth_backend: Optional[AuthBackend] = None
-
-
-def get_auth_backend() -> AuthBackend:
-    """Get the configured authentication backend."""
-    global _auth_backend
-
-    if _auth_backend is None:
-        config = get_config()
-
-        if config.auth.backend == "none":
-            _auth_backend = NoAuthBackend()
-        elif config.auth.backend == "apikey":
-            if not config.auth.apikey or not config.auth.apikey.get("keys"):
-                raise ValueError(
-                    "API key authentication requires 'auth.apikey.keys' configuration"
-                )
-            _auth_backend = APIKeyBackend(config.auth.apikey["keys"])
-        elif config.auth.backend == "oidc":
-            if not config.auth.oidc:
-                raise ValueError(
-                    "OIDC authentication requires 'auth.oidc' configuration"
-                )
-
-            oidc_config = config.auth.oidc
-            issuer_url = oidc_config.get("issuer_url")
-            client_id = oidc_config.get("client_id")
-            client_secret = oidc_config.get("client_secret")
-
-            if not issuer_url or not client_id:
-                raise ValueError(
-                    "OIDC authentication requires 'issuer_url' and 'client_id'"
-                )
-
-            _auth_backend = OIDCBackend(issuer_url, client_id, client_secret)
-        else:
-            raise ValueError(f"Unknown authentication backend: {config.auth.backend}")
-
-    return _auth_backend
-
-
-def reset_auth_backend() -> None:
-    """Reset the auth backend - useful for testing."""
-    global _auth_backend
-    _auth_backend = None
-
-
-async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-) -> Any:
+async def get_current_user(request: Request) -> UserInfo:
     """FastAPI dependency to get current authenticated user."""
-    auth_backend = get_auth_backend()
-
-    try:
-        user = await auth_backend.authenticate(credentials)
-        if user is None:
-            raise AuthenticationError("Authentication failed")
-        return user
-    except AuthenticationError:
+    config = get_config()
+    auth_config = config.auth
+    
+    # Get auth backend
+    backend_type = auth_config.backend
+    
+    if backend_type == "none":
+        # Temporarily set ENABLE_NOAUTH for NoAuthBackend initialization
+        old_enable_noauth = os.environ.get("ENABLE_NOAUTH")
+        os.environ["ENABLE_NOAUTH"] = "true"
+        try:
+            backend = NoAuthBackend({"enabled": True})
+        finally:
+            # Restore original ENABLE_NOAUTH value
+            if old_enable_noauth is None:
+                os.environ.pop("ENABLE_NOAUTH", None)
+            else:
+                os.environ["ENABLE_NOAUTH"] = old_enable_noauth
+    elif backend_type == "apikey":
+        apikey_config = auth_config.apikey
+        if apikey_config:
+            backend = APIKeyBackend({"keys": apikey_config.keys})
+        else:
+            backend = APIKeyBackend({})
+    elif backend_type == "oidc":
+        oidc_config = auth_config.oidc
+        if oidc_config:
+            backend = OIDCBackend({
+                "issuer_url": oidc_config.issuer_url,
+                "client_id": oidc_config.client_id,
+                "client_secret": oidc_config.client_secret,
+                "jwks_cache_ttl": oidc_config.jwks_cache_ttl,
+            })
+        else:
+            backend = OIDCBackend({})
+    else:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unknown auth backend: {backend_type}"
+        )
+    
+    # Create auth request from FastAPI request
+    auth_request = AuthRequest(
+        headers=dict(request.headers),
+        cookies=dict(request.cookies),
+        query_params=dict(request.query_params)
+    )
+    
+    try:
+        user = await backend.authenticate(auth_request)
+        return user
+    except AuthenticationError as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
         )

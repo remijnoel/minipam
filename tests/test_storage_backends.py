@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from src.minipam.models import CIDRBlock
-from src.minipam.storage import FileStorage, MemoryStorage, StorageBackend
+from src.minipam.storage import CIDRNotFoundError, CIDRStorage, FileStorage, MemoryStorage, StorageBackend, StorageError
 
 # Mark as unit tests
 pytestmark = pytest.mark.unit
@@ -473,6 +473,9 @@ class TestFileStorage:
         """Test file storage error handling."""
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = FileStorage(temp_dir)
+            
+            # Force a cache invalidation to ensure reload is needed
+            storage._data = None
 
             # Test handling of permission errors
             with patch(
