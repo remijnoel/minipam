@@ -3,12 +3,12 @@
 
 if [ -z "$1" ]; then
     echo "Usage: $0 <API_URL> [SEED_FILE]"
-    echo "Example: $0 http://localhost:8000/api/v1 seed-data.json"
+    echo "Example: $0 http://localhost:8000/api/v1 data/seed-data.json"
     exit 1
 fi
 
 API_URL="$1"
-SEED_FILE="${2:-seed-data.json}"
+SEED_FILE="${2:-data/seed-data.json}"
 
 if [ ! -f "$SEED_FILE" ]; then
     echo "Error: Seed file '$SEED_FILE' not found"

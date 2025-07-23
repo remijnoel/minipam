@@ -216,6 +216,9 @@ backup/
 # MiniPAM specific
 config.yaml
 data/
+Makefile.local
 
 # Include built UI files in the package
 !src/minipam/ui/dist/
+
+.claude

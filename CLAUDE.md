@@ -92,7 +92,7 @@ python tests/run_tests.py --core-only
 **MiniPAM** is a FastAPI-based CIDR block management service with:
 
 - **Backend**: FastAPI REST API with async support
-- **Frontend**: Vue.js 3 + Tailwind CSS single-page application
+- **Frontend**: React frontend (in another repository)
 - **Storage**: Pluggable backends (memory, file-based with atomic writes)
 - **Authentication**: Multiple backends (none, API keys, Azure OIDC)
 - **CLI**: Click-based command-line interface
