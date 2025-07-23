@@ -34,7 +34,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY src/ ./src/
-COPY webui/dist/ ./webui/dist/
+COPY src/minipam/ui/dist/ ./src/minipam/ui/dist/
 
 # Create data directory
 RUN mkdir -p /app/data
@@ -366,3 +366,59 @@ const API_BASE_URL = 'http://minipam-alb-123456789.us-east-1.elb.amazonaws.com/a
 // or with custom domain
 const API_BASE_URL = 'https://api.yourdomain.com/api/v1';
 ```
+
+## Quick Deploy Reference
+
+### Makefile Commands
+
+For quick deployment iterations using the Makefile:
+
+| Command | Description |
+|---------|-------------|
+| `make first-deploy` | Initial deployment setup |
+| `make redeploy` | Quick redeploy with latest code |
+| `make status` | Show deployment status and URLs |
+| `make get-url` | Get the API endpoint URL |
+| `make logs` | View recent application logs |
+| `make stop-service` | Stop service (save costs) |
+| `make start-service` | Start service again |
+| `make check` | Validate configuration |
+| `make local` | Run locally for testing |
+
+### Quick Redeploy Workflow
+
+1. **Make code changes**
+
+2. **Deploy to ECS**:
+   ```bash
+   make redeploy
+   ```
+   This single command:
+   - Builds the Docker image
+   - Pushes to ECR with `latest` tag
+   - Forces ECS to redeploy the service
+   - Waits for deployment to complete
+
+3. **Get your API URL**:
+   ```bash
+   make get-url
+   ```
+
+### Cost Saving Tips
+
+When not actively developing:
+```bash
+# Stop the service
+make stop-service
+
+# Later, start it again
+make start-service
+```
+
+### Configuration Defaults
+
+The Makefile uses these defaults:
+- **Region**: `us-west-2` (change with `AWS_REGION=us-east-1 make redeploy`)
+- **Cluster**: `minipam-dev-cluster`
+- **Service**: `minipam-dev-service`
+- **ECR Repo**: `minipam-dev`

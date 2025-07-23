@@ -136,6 +136,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.*.example
 .envrc
 .venv
 env/
@@ -210,3 +212,10 @@ node_modules/
 tmp/
 backup/
 .terraform/
+
+# MiniPAM specific
+config.yaml
+data/
+
+# Include built UI files in the package
+!src/minipam/ui/dist/

@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 """Create sample CIDR data for development."""
+import os
 import sys
-sys.path.insert(0, '/app/src')
+from pathlib import Path
+
+# Add src directory to path for development use
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root / "src"))
 
 from minipam.models import CIDRBlock
 from minipam.storage import FileStorage
 
 def create_sample_data():
     """Create sample CIDR blocks."""
-    storage = FileStorage("/app/data")
+    # Use environment variable or default to ./data
+    data_path = os.environ.get("MINIPAM_STORAGE_PATH", "./data")
+    storage = FileStorage(data_path)
     
     # Sample hierarchical CIDR blocks
     blocks = [

@@ -315,6 +315,76 @@ If Docker builds fail:
 4. Update documentation for any changes
 5. Run full test suite and Docker builds
 
+## AWS Fargate Development
+
+### Quick Start Commands
+
+For AWS Fargate deployment during development:
+
+```bash
+# First time setup
+make first-deploy
+
+# Get your API URL
+make status
+
+# Quick redeploy with latest code
+make redeploy
+
+# View logs
+make logs
+
+# Run tests against deployed service
+make test
+
+# Destroy the deployment
+make destroy
+```
+
+### Available Makefile Commands
+
+| Command | Description |
+|---------|-------------|
+| `make help` | Show all available commands |
+| `make deploy` | Full deployment (first time) |
+| `make redeploy` | Quick redeploy with latest code |
+| `make status` | Show deployment status and URLs |
+| `make logs` | Show recent application logs |
+| `make test` | Run tests against deployed service |
+| `make local` | Run locally with Docker |
+| `make clean` | Clean up local Docker images |
+| `make destroy` | Destroy the deployment |
+
+### Cost Optimization
+
+Development environment costs approximately:
+- **Fargate**: ~$10-15/month (1 task, 0.25 vCPU, 0.5 GB)
+- **ALB**: ~$20/month
+- **Total**: ~$30-35/month
+
+To minimize costs:
+- Use `make destroy` when not actively developing
+- The stack can be redeployed quickly with `make deploy`
+
+### Frontend Integration Example
+
+Update your frontend to use the deployed API:
+
+```javascript
+// Get your API URL from 'make status'
+const API_BASE_URL = 'http://minipam-dev-alb-123456789.us-east-1.elb.amazonaws.com/api/v1';
+
+// Test connection
+fetch(`${API_BASE_URL}/health/ready`)
+  .then(response => response.json())
+  .then(data => console.log('Backend healthy:', data));
+
+// Get CIDR tree
+fetch(`${API_BASE_URL}/cidrs/tree`)
+  .then(response => response.json())
+  .then(data => console.log('CIDR tree:', data));
+```
+
 ## Resources
 
 - [CLAUDE.md](../CLAUDE.md) - Development workflow requirements

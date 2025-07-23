@@ -54,17 +54,17 @@ docker-compose -f docker-compose.azure.yml up -d
 ### Building the Web UI
 
 ```bash
-# Build the UI assets
-./build-ui.sh
+# Build the UI assets from remote repository
+./scripts/build-ui.sh
 
-# OR using npm (if Node.js is installed)
-cd webui && npm run build
+# OR build from local development directory
+LOCAL_UI_DIR=../ipam-visual-nexus ./scripts/build-ui-local.sh
 ```
 
-The Web UI is a Vue.js 3 single-page application located in the `webui/` directory:
-- `webui/src/app.js` - Main Vue application
-- `webui/public/index.html` - HTML template
-- `webui/dist/` - Built assets (served at `/ui/` endpoint)
+The Web UI is built from a separate repository (https://github.com/remijnoel/ipam-visual-nexus) and packaged into the MiniPAM distribution:
+- Built UI assets are placed in `src/minipam/ui/dist/`
+- UI is served at the root path `/` by default
+- Build scripts automatically pull, build, and package the latest UI
 
 ### Testing
 
@@ -242,7 +242,7 @@ Refer to the documentation in `docs/` for detailed architecture information.
 
 ## Project-Specific Notes
 
-- **Vue.js UI**: Located in `webui/` directory with Node.js build system
+- **Vue.js UI**: Built from remote repository and packaged in `src/minipam/ui/dist/`
 - **Docker**: Multi-stage build with development and production configurations
 - **CLI**: Available as `minipam` command after installation
 - **Storage**: File-based storage uses atomic writes with file locking
