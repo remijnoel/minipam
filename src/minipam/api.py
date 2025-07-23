@@ -119,13 +119,14 @@ def create_app(
         allow_headers=["*"],
     )
 
-    # Root redirect
-    @app.get("/", include_in_schema=False)
-    async def root():
-        """Redirect root to UI or API docs."""
-        if config.ui.enabled:
-            return RedirectResponse(url=config.ui.path)
-        return RedirectResponse(url="/docs")
+    # Root redirect (only if UI is not mounted at root path)
+    if not (config.ui.enabled and config.ui.path == "/"):
+        @app.get("/", include_in_schema=False)
+        async def root():
+            """Redirect root to UI or API docs."""
+            if config.ui.enabled:
+                return RedirectResponse(url=config.ui.path)
+            return RedirectResponse(url="/docs")
 
     # Health endpoints
     @app.get("/api/v1/health/live", response_model=HealthResponse)
@@ -388,49 +389,71 @@ def create_app(
             },
         )
 
-    # UI Routes
+    # UI Routes - Serve UI from root path
     if config.ui.enabled:
-        import os
         from pathlib import Path
         
-        # Find the webui dist directory
-        webui_dist = None
-        current_dir = Path(__file__).parent
+        # Look for packaged UI dist directory
+        ui_dist = Path(__file__).parent / "ui" / "dist"
         
-        # Look for webui/dist relative to the source directory
-        for parent in [current_dir, current_dir.parent, current_dir.parent.parent]:
-            potential_webui = parent / "webui" / "dist"
-            if potential_webui.exists():
-                webui_dist = potential_webui
-                break
-        
-        if webui_dist and webui_dist.exists():
-            # Mount static files
-            app.mount("/ui", StaticFiles(directory=str(webui_dist), html=True), name="ui")
+        if ui_dist.exists():
+            # Mount static files for packaged external UI at configured path
+            # IMPORTANT: Mount this LAST so API routes take precedence
+            app.mount(config.ui.path, StaticFiles(directory=str(ui_dist), html=True), name="ui")
+            logger.info(f"UI mounted at {config.ui.path} from {ui_dist}")
         else:
-            # Fallback: basic HTML page
-            @app.get("/ui/", response_class=HTMLResponse)
-            async def ui_index():
-                """Serve the UI index page."""
-                return HTMLResponse("""
+            # Fallback: API documentation page (only if UI is supposed to be at root)
+            if config.ui.path == "/":
+                @app.get("/", response_class=HTMLResponse)
+                async def ui_fallback():
+                    """Serve a fallback page when UI is not available."""
+                    return HTMLResponse("""
                 <!DOCTYPE html>
                 <html>
                 <head>
-                    <title>MiniPAM</title>
+                    <title>MiniPAM API</title>
                     <meta charset="utf-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1">
+                    <style>
+                        body { font-family: Arial, sans-serif; margin: 50px; background: #f8f9fa; }
+                        .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                        .api-info { background: #e9ecef; padding: 20px; border-radius: 5px; margin: 20px 0; }
+                        .endpoint { background: #fff; border: 1px solid #dee2e6; padding: 10px; margin: 5px 0; border-radius: 4px; }
+                        .method { color: #007bff; font-weight: bold; }
+                        a { color: #007bff; text-decoration: none; }
+                        a:hover { text-decoration: underline; }
+                    </style>
                 </head>
                 <body>
-                    <h1>MiniPAM</h1>
-                    <p>Web UI files not found. Please build the UI first.</p>
-                    <p>API documentation is available at <a href="/docs">/docs</a></p>
+                    <div class="container">
+                        <h1>🏠 MiniPAM</h1>
+                        <p>Minimalistic IP Address Management - API Server</p>
+                        
+                        <div class="api-info">
+                            <h2>📚 API Documentation</h2>
+                            <p>Interactive API documentation: <a href="/api/v1/docs" target="_blank">/api/v1/docs</a></p>
+                            <p>OpenAPI Schema: <a href="/api/v1/openapi.json" target="_blank">/api/v1/openapi.json</a></p>
+                        </div>
+                        
+                        <h3>🚀 Quick Start</h3>
+                        <div class="endpoint">
+                            <span class="method">GET</span> <code>/api/v1/health/ready</code> - Health check
+                        </div>
+                        <div class="endpoint">
+                            <span class="method">GET</span> <code>/api/v1/cidrs</code> - List all CIDR blocks
+                        </div>
+                        <div class="endpoint">
+                            <span class="method">GET</span> <code>/api/v1/cidrs/tree</code> - Hierarchical tree view
+                        </div>
+                        <div class="endpoint">
+                            <span class="method">POST</span> <code>/api/v1/cidrs</code> - Create new CIDR block
+                        </div>
+                        
+                        <p><small>ℹ️ Web UI not available - UI will be packaged during build process</small></p>
+                    </div>
                 </body>
                 </html>
                 """)
-            
-            @app.get("/ui")
-            async def ui_redirect():
-                """Redirect /ui to /ui/"""
-                return RedirectResponse(url="/ui/", status_code=302)
+            logger.warning(f"UI enabled but dist directory not found at {ui_dist}. Serving fallback page.")
 
     return app

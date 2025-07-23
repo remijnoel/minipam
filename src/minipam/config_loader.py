@@ -82,7 +82,7 @@ class UIConfig(BaseModel):
     """UI configuration."""
 
     enabled: bool = Field(default=True, description="Enable web UI")
-    path: str = Field(default="/ui", description="UI path")
+    path: str = Field(default="/", description="UI path")
 
 
 class AppConfig(BaseModel):
@@ -147,7 +147,7 @@ class ConfigLoader:
             "server": {"host": "0.0.0.0", "port": 8000, "debug": False},
             "storage": {"type": "file", "path": "./data"},
             "auth": {"backend": "none", "apikey": None, "oidc": None},
-            "ui": {"enabled": True, "path": "/ui"},
+            "ui": {"enabled": True, "path": "/"},
         }
 
     def _load_from_file(self, config_path: str) -> Dict[str, Any]:

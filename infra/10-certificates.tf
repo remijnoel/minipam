@@ -2,8 +2,8 @@ module "acm" {
   source  = "terraform-aws-modules/acm/aws"
   version = "~> 4.0"
 
-  domain_name = "www.${var.domain_name}"
-  zone_id     = aws_route53_zone.novi_labs.zone_id
+  domain_name = var.domain_name
+  zone_id     = var.route53_zone_id
 
   validation_method = "DNS"
 
@@ -28,7 +28,7 @@ module "route53_records" {
   validation_method = "DNS"
 
   distinct_domain_names = module.acm.distinct_domain_names
-  zone_id               = aws_route53_zone.novi_labs.zone_id
+  zone_id               = var.route53_zone_id
 
   acm_certificate_domain_validation_options = module.acm.acm_certificate_domain_validation_options
 }

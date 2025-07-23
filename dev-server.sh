@@ -59,7 +59,7 @@ fi
 # Start the development server
 log "Starting MiniPAM development server..."
 log "Server will be available at: http://127.0.0.1:8000"
-log "Web UI will be available at: http://127.0.0.1:8000/ui"
+log "Web UI will be available at: http://127.0.0.1:8000/"
 log "API documentation at: http://127.0.0.1:8000/api/docs"
 log "Press Ctrl+C to stop the server"
 

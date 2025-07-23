@@ -8,7 +8,7 @@ provider "aws" {
 terraform {
   backend "s3" {
     bucket         = "rno-sandbox-terraform-state"
-    key            = "novi/terraform.tfstate"
+    key            = "minipam-dev/terraform.tfstate"
     encrypt        = true
     region         = "us-west-2"
     dynamodb_table = "rno-prod-terraform-state-lock"

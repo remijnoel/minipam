@@ -24,7 +24,7 @@ class TestConfigLoader:
         assert config.storage.path == "./data"
         assert config.auth.backend == "none"
         assert config.ui.enabled
-        assert config.ui.path == "/ui"
+        assert config.ui.path == "/"
 
     def test_yaml_config_file(self, temp_storage_dir):
         """Test loading YAML configuration file."""

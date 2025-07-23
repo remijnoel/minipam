@@ -1,0 +1,36 @@
+# Simple production Docker image for MiniPAM
+FROM python:3.11-slim
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy and install requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application
+COPY src/ ./src/
+COPY pyproject.toml README.md LICENSE ./
+
+# Install package
+ENV SETUPTOOLS_SCM_PRETEND_VERSION="1.0.0"
+RUN pip install -e .
+
+# Create directories
+RUN mkdir -p /app/data /app/config
+
+# Create minimal config
+RUN echo 'server:\n  host: "0.0.0.0"\n  port: 8000\n  debug: false\n\nstorage:\n  type: "file"\n  path: "/app/data"\n\nauth:\n  backend: "none"\n\nui:\n  enabled: true\n  path: "/ui"' > /app/config/config.yaml
+
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8000/api/v1/health/ready || exit 1
+
+# Run
+CMD ["python", "-m", "minipam.main", "--config", "/app/config/config.yaml"]

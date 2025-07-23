@@ -1,7 +1,7 @@
 # Multi-stage Docker build for MiniPAM
 
 # Build stage
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -30,7 +30,7 @@ ENV SETUPTOOLS_SCM_PRETEND_VERSION="1.0.0"
 RUN pip install -e .
 
 # Production stage
-FROM python:3.11-slim as production
+FROM python:3.11-slim AS production
 
 # Create non-root user
 RUN groupadd -r minipam && useradd -r -g minipam minipam
@@ -71,7 +71,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 CMD ["minipam", "serve"]
 
 # Development stage
-FROM builder as development
+FROM builder AS development
 
 # Install development dependencies
 RUN pip install --no-cache-dir -r requirements-dev.txt

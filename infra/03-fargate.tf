@@ -18,7 +18,7 @@ resource "aws_ecs_cluster_capacity_providers" "cs_cluster_capacity_providers" {
 }
 
 locals {
-  container_name = "${module.naming.prefix}-nginx"
+  container_name = module.naming.prefix
   default_container_definition = jsonencode(
     [
       {
@@ -26,7 +26,7 @@ locals {
         entryPoint       = null,
         portMappings = [
           {
-            hostPort      = 80
+            hostPort      = 8000
             protocol      = "tcp"
             containerPort = 8000
           }
@@ -171,11 +171,11 @@ resource "aws_ecs_service" "main" {
   load_balancer {
     target_group_arn = aws_lb_target_group.nginx.arn
     container_name   = local.container_name
-    container_port   = 80
+    container_port   = 8000
   }
 
   network_configuration {
-    subnets         = module.vpc.public_subnets
+    subnets         = module.vpc.private_subnets
     security_groups = [aws_security_group.service.id]
   }
   tags = merge(module.naming.tags, {
@@ -191,15 +191,19 @@ resource "aws_ecs_service" "main" {
 }
 
 resource "aws_security_group" "service" {
-  name        = "${module.naming.prefix}-nginx"
-  description = "Security group for the Nginx service"
+  name        = "${module.naming.prefix}-service"
+  description = "Security group for the minipam service"
   vpc_id      = module.vpc.vpc_id
+  tags = merge(module.naming.tags, {
+    Name    = "${module.naming.prefix}-service"
+    Service = "ecs"
+  })
 }
 
 resource "aws_security_group_rule" "service_ingress_alb" {
   type                     = "ingress"
-  from_port                = 80
-  to_port                  = 80
+  from_port                = 8000
+  to_port                  = 8000
   protocol                 = "tcp"
   source_security_group_id = aws_security_group.alb_public.id
   security_group_id        = aws_security_group.service.id

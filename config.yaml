@@ -34,7 +34,7 @@ auth:
 # UI configuration
 ui:
   enabled: true          # Enable embedded web UI
-  path: "/ui"            # UI path
+  path: "/"              # UI path
 
 # Example environment variable overrides:
 # MINIPAM_SERVER_HOST=127.0.0.1
